@@ -1,0 +1,182 @@
+// Nexora — Nigeria crypto & gift card exchange
+// Hybrid ops: admin-verified trades + structured automation hooks
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum KycStatus {
+  UNVERIFIED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AssetKind {
+  CRYPTO
+  GIFTCARD
+}
+
+enum TradeSide {
+  SELL
+  BUY
+}
+
+enum OrderStatus {
+  DRAFT
+  AWAITING_DEPOSIT
+  UNDER_REVIEW
+  APPROVED
+  PAYOUT_SENT
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  phone        String   @unique
+  passwordHash String
+  fullName     String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  kyc           KycProfile?
+  cryptoOrders  CryptoOrder[]
+  giftOrders    GiftCardOrder[]
+  auditLogs     AuditLog[]
+  sessions      Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  userAgent String?
+  ipHash    String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model KycProfile {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  bvnLast4      String?
+  ninLast4      String?
+  bankName      String?
+  accountNumber String?
+  accountName   String?
+  status        KycStatus @default(UNVERIFIED)
+  reviewNote    String?
+  submittedAt   DateTime?
+  reviewedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Rate {
+  id          String    @id @default(cuid())
+  kind        AssetKind
+  symbol      String
+  displayName String
+  /// NGN per 1 unit (crypto coin or $1 gift card face value)
+  sellRateNgn Float
+  buyRateNgn  Float
+  minAmount   Float     @default(1)
+  maxAmount   Float?
+  isActive    Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime  @default(now())
+
+  @@unique([kind, symbol])
+}
+
+model PlatformWallet {
+  id        String   @id @default(cuid())
+  symbol    String   @unique
+  network   String
+  address   String
+  isActive  Boolean  @default(true)
+  note      String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+model CryptoOrder {
+  id              String      @id @default(cuid())
+  reference       String      @unique
+  userId          String
+  symbol          String
+  network         String
+  side            TradeSide
+  amountCrypto    Float
+  rateNgn         Float
+  amountNgn       Float
+  depositAddress  String?
+  txHash          String?
+  bankName        String?
+  accountNumber   String?
+  accountName     String?
+  status          OrderStatus @default(AWAITING_DEPOSIT)
+  adminNote       String?
+  payoutRef       String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  completedAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model GiftCardOrder {
+  id                 String      @id @default(cuid())
+  reference          String      @unique
+  userId             String
+  brand              String
+  country            String      @default("USA")
+  faceValueUsd       Float
+  rateNgn            Float
+  amountNgn          Float
+  /// AES-GCM ciphertext — never store raw gift card codes
+  cardCodeEncrypted  String
+  cardCodeIv         String
+  imageNote          String?
+  status             OrderStatus @default(UNDER_REVIEW)
+  adminNote          String?
+  payoutRef          String?
+  bankName           String?
+  accountNumber      String?
+  accountName        String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  completedAt        DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  meta      String?
+  ipHash    String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}

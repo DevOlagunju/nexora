@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Nexora
 
-## Getting Started
+Nigeria-first web platform to **sell crypto and gift cards for Naira**. Inspired by vendors like Greatiby, with gift cards added and a security-first hybrid operations model.
 
-First, run the development server:
+## Stack (security-minded)
+
+- **Next.js 16** (App Router) + TypeScript
+- **Prisma 7** + SQLite locally (swap `DATABASE_URL` to Postgres for production)
+- **bcrypt** password hashing (cost 12)
+- **JWT + server-side session table** in HttpOnly cookies
+- **AES-256-GCM** for gift card codes at rest
+- **BVN/NIN**: only last 4 stored
+- Zod validation, rate limits, audit logs
+
+## Hybrid operations
+
+| Flow | Automated | Human desk |
+|------|-----------|------------|
+| Accounts, rates display, order tracking | Yes | — |
+| KYC review | Queue | Approve / reject |
+| Crypto sell | Order + deposit address | Confirm TX, mark payout |
+| Gift card sell | Encrypt + queue | Redeem / fraud check, payout |
+| Rates | Seeded defaults | Admin override live |
+
+Buy crypto / Paystack-Flutterwave / native app come later on the same API surface.
+
+## Quick start
 
 ```bash
+cd nexora
+npm install
+npx prisma migrate dev
+npm run db:seed
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Admin account
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Copy `.env.example` → `.env`, set `ADMIN_EMAIL` / `ADMIN_PASSWORD`, then run `npm run db:seed`.
+Change those secrets before any production use.
 
-## Learn More
+## User path
 
-To learn more about Next.js, take a look at the following resources:
+1. Register → submit KYC  
+2. Admin approves KYC  
+3. Sell crypto or gift card  
+4. Admin verifies → marks payout / completed  
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Production checklist
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- [ ] Move to **PostgreSQL**
+- [ ] Replace `AUTH_SECRET` and `ENCRYPTION_KEY`
+- [ ] Replace demo deposit wallet addresses
+- [ ] Put Redis in front of in-memory rate limits
+- [ ] Add BVN/NIN verification provider (DojaHub / Prembly)
+- [ ] Add Paystack/Flutterwave for automated NGN payouts
+- [ ] HTTPS only, secure cookies, WAF
+- [ ] Never log raw gift card codes or full BVN/NIN
 
-## Deploy on Vercel
+## App (Android & iOS)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Expo app lives in `../nexora-mobile`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+# Terminal 1 — API reachable on LAN
+cd nexora
+npm run dev
+
+# Terminal 2 — Expo
+cd ../nexora-mobile
+npx expo start
+```
+
+See `nexora-mobile/README.md` for device IP setup and store builds.
