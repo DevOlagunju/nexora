@@ -42,6 +42,9 @@ export default async function DashboardPage() {
             <Link href="/dashboard/sell-crypto" className="btn btn-primary text-sm">
               Sell crypto
             </Link>
+            <Link href="/dashboard/buy-crypto" className="btn btn-ghost text-sm">
+              Buy crypto
+            </Link>
             <Link href="/dashboard/sell-giftcard" className="btn btn-dark text-sm">
               Sell gift card
             </Link>
@@ -60,7 +63,7 @@ export default async function DashboardPage() {
         <div className="mt-8 grid gap-6 md:grid-cols-2">
           <section className="card-panel">
             <div className="flex items-center justify-between">
-              <h2 className="font-semibold">Recent crypto sells</h2>
+              <h2 className="font-semibold">Recent crypto orders</h2>
               <Link href="/dashboard/orders" className="text-sm text-accent-deep">
                 All orders
               </Link>
@@ -72,7 +75,7 @@ export default async function DashboardPage() {
                   <span>
                     {o.reference}
                     <span className="block text-xs text-ink-soft">
-                      {o.amountCrypto} {o.symbol}
+                      {o.side} · {o.amountCrypto} {o.symbol}
                     </span>
                   </span>
                   <span className="text-right">

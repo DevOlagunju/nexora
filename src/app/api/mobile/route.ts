@@ -3,8 +3,11 @@ import { prisma } from "@/lib/db";
 import { getRequestUser, jsonError } from "@/lib/auth";
 import { encryptSecret, orderReference } from "@/lib/crypto";
 import { rateLimit, writeAudit } from "@/lib/security";
-import { cryptoSellSchema, giftCardSellSchema, kycSchema } from "@/lib/validators";
+import { cryptoBuySchema, cryptoSellSchema, giftCardSellSchema, kycSchema } from "@/lib/validators";
 import { deskQuotesFromMarket, fetchNgnMarket } from "@/lib/ngn-market";
+import { verifyKycIdentity } from "@/lib/kyc-provider";
+import { notifyAdmin } from "@/lib/notify";
+import { platformBankDetails } from "@/lib/platform-bank";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +50,7 @@ export async function GET(request: Request) {
     giftOrders,
     rates,
     wallets,
+    platformBank: platformBankDetails(),
   });
 }
 
@@ -65,6 +69,7 @@ export async function POST(request: Request) {
     const parsed = kycSchema.safeParse(body);
     if (!parsed.success) return jsonError(parsed.error.issues[0]?.message ?? "Invalid input");
     const { bvn, nin, bankName, accountNumber, accountName } = parsed.data;
+    const check = await verifyKycIdentity({ bvn, nin, bankName, accountNumber, accountName });
     await prisma.kycProfile.upsert({
       where: { userId: user.id },
       update: {
@@ -73,9 +78,11 @@ export async function POST(request: Request) {
         bankName,
         accountNumber,
         accountName,
-        status: "PENDING",
+        status: check.status,
         submittedAt: new Date(),
-        reviewNote: null,
+        reviewNote: check.mode === "provider" ? check.message : null,
+        reviewedAt:
+          check.status === "APPROVED" || check.status === "REJECTED" ? new Date() : null,
       },
       create: {
         userId: user.id,
@@ -84,12 +91,16 @@ export async function POST(request: Request) {
         bankName,
         accountNumber,
         accountName,
-        status: "PENDING",
+        status: check.status,
         submittedAt: new Date(),
+        reviewNote: check.mode === "provider" ? check.message : null,
+        reviewedAt:
+          check.status === "APPROVED" || check.status === "REJECTED" ? new Date() : null,
       },
     });
-    await writeAudit("kyc.submit", { userId: user.id, ip });
-    return NextResponse.json({ ok: true, message: "KYC submitted for review." });
+    await writeAudit("kyc.submit", { userId: user.id, ip, meta: { mode: check.mode } });
+    void notifyAdmin("kyc.submitted", { userId: user.id, email: user.email, status: check.status });
+    return NextResponse.json({ ok: true, message: check.message });
   }
 
   if (action === "sell-crypto") {
@@ -155,7 +166,76 @@ export async function POST(request: Request) {
       ip,
       meta: { reference: order.reference },
     });
+    void notifyAdmin("crypto.sell_created", { reference: order.reference, userId: user.id });
     return NextResponse.json({ ok: true, order });
+  }
+
+  if (action === "buy-crypto") {
+    if (!rateLimit(`m-crypto-buy:${user.id}`, 15, 60_000)) {
+      return jsonError("Too many orders. Slow down.", 429);
+    }
+    const kyc = await prisma.kycProfile.findUnique({ where: { userId: user.id } });
+    if (!kyc || kyc.status !== "APPROVED") {
+      return jsonError("Complete and get KYC approved before trading.");
+    }
+    const parsed = cryptoBuySchema.safeParse(body);
+    if (!parsed.success) return jsonError(parsed.error.issues[0]?.message ?? "Invalid input");
+
+    const rate = await prisma.rate.findUnique({
+      where: { kind_symbol: { kind: "CRYPTO", symbol: parsed.data.symbol } },
+    });
+    if (!rate?.isActive) return jsonError("Asset unavailable.");
+    if (parsed.data.amountCrypto < rate.minAmount) {
+      return jsonError(`Minimum is ${rate.minAmount} ${rate.symbol}.`);
+    }
+
+    let buyRateNgn = rate.buyRateNgn;
+    try {
+      const market = await fetchNgnMarket();
+      const desk = deskQuotesFromMarket(market);
+      const live = desk[parsed.data.symbol as "USDT" | "BTC" | "ETH"];
+      if (live) {
+        buyRateNgn = live.buy;
+        await prisma.rate.update({
+          where: { id: rate.id },
+          data: { sellRateNgn: live.sell, buyRateNgn: live.buy },
+        });
+      }
+    } catch {
+      /* keep DB rate */
+    }
+
+    const wallet = await prisma.platformWallet.findUnique({
+      where: { symbol: parsed.data.symbol },
+    });
+    if (!wallet?.isActive) return jsonError("Asset network unavailable.");
+
+    const bank = platformBankDetails();
+    const order = await prisma.cryptoOrder.create({
+      data: {
+        reference: orderReference("NXB"),
+        userId: user.id,
+        symbol: parsed.data.symbol,
+        network: wallet.network,
+        side: "BUY",
+        amountCrypto: parsed.data.amountCrypto,
+        rateNgn: buyRateNgn,
+        amountNgn: parsed.data.amountCrypto * buyRateNgn,
+        userReceiveAddress: parsed.data.userReceiveAddress,
+        paymentRef: parsed.data.paymentRef,
+        bankName: bank.bankName,
+        accountNumber: bank.accountNumber,
+        accountName: bank.accountName,
+        status: parsed.data.paymentRef ? "UNDER_REVIEW" : "AWAITING_DEPOSIT",
+      },
+    });
+    await writeAudit("crypto.buy_create", {
+      userId: user.id,
+      ip,
+      meta: { reference: order.reference },
+    });
+    void notifyAdmin("crypto.buy_created", { reference: order.reference, userId: user.id });
+    return NextResponse.json({ ok: true, order, platformBank: bank });
   }
 
   if (action === "sell-giftcard") {
@@ -197,6 +277,7 @@ export async function POST(request: Request) {
       ip,
       meta: { reference: order.reference },
     });
+    void notifyAdmin("gift.sell_created", { reference: order.reference, userId: user.id });
     return NextResponse.json({
       ok: true,
       order: {
@@ -221,6 +302,30 @@ export async function POST(request: Request) {
     const updated = await prisma.cryptoOrder.update({
       where: { id },
       data: { txHash, status: "UNDER_REVIEW" },
+    });
+    void notifyAdmin("crypto.tx_submitted", { orderId: id, userId: user.id });
+    return NextResponse.json({ ok: true, order: updated });
+  }
+
+  if (action === "buy-payment") {
+    const id = String(body?.id ?? "");
+    const paymentRef = String(body?.paymentRef ?? "").trim();
+    if (!id || paymentRef.length < 4) return jsonError("Provide a valid bank payment reference.");
+    const order = await prisma.cryptoOrder.findFirst({
+      where: { id, userId: user.id, side: "BUY" },
+    });
+    if (!order) return jsonError("Order not found.", 404);
+    if (!["AWAITING_DEPOSIT", "UNDER_REVIEW"].includes(order.status)) {
+      return jsonError("This order can no longer be updated.");
+    }
+    const updated = await prisma.cryptoOrder.update({
+      where: { id },
+      data: { paymentRef, status: "UNDER_REVIEW" },
+    });
+    void notifyAdmin("crypto.payment_submitted", {
+      orderId: id,
+      reference: order.reference,
+      userId: user.id,
     });
     return NextResponse.json({ ok: true, order: updated });
   }

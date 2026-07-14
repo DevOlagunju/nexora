@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { submitCryptoTxAction } from "@/app/actions";
+import { submitBuyPaymentAction, submitCryptoTxAction } from "@/app/actions";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { STATUS_LABEL } from "@/lib/security";
@@ -36,20 +36,46 @@ export default async function OrdersPage() {
               <article key={o.id} className="card-panel text-sm">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <p className="font-semibold">{o.reference}</p>
+                    <p className="font-semibold">
+                      {o.reference} · {o.side}
+                    </p>
                     <p className="text-ink-soft">
                       {o.amountCrypto} {o.symbol} ({o.network}) → {formatNgn(o.amountNgn)}
                     </p>
                     <p className="mt-1 text-xs text-ink-soft">Status: {STATUS_LABEL[o.status]}</p>
                   </div>
-                  <p className="max-w-xs break-all text-xs text-ink-soft">Deposit: {o.depositAddress}</p>
+                  {o.side === "SELL" ? (
+                    <p className="max-w-xs break-all text-xs text-ink-soft">
+                      Deposit: {o.depositAddress}
+                    </p>
+                  ) : (
+                    <p className="max-w-xs break-all text-xs text-ink-soft">
+                      Receive: {o.userReceiveAddress}
+                      <br />
+                      Pay: {o.bankName} {o.accountNumber}
+                    </p>
+                  )}
                 </div>
-                {["AWAITING_DEPOSIT", "UNDER_REVIEW"].includes(o.status) && (
+                {o.side === "SELL" && ["AWAITING_DEPOSIT", "UNDER_REVIEW"].includes(o.status) && (
                   <ActionForm action={submitCryptoTxAction} className="mt-4 border-t border-[var(--line)] pt-4">
                     <input type="hidden" name="id" value={o.id} />
                     <label className="block text-sm font-medium">
                       Transaction hash
                       <input className="input mt-1" name="txHash" defaultValue={o.txHash ?? ""} required />
+                    </label>
+                  </ActionForm>
+                )}
+                {o.side === "BUY" && ["AWAITING_DEPOSIT", "UNDER_REVIEW"].includes(o.status) && (
+                  <ActionForm action={submitBuyPaymentAction} className="mt-4 border-t border-[var(--line)] pt-4">
+                    <input type="hidden" name="id" value={o.id} />
+                    <label className="block text-sm font-medium">
+                      Bank payment reference
+                      <input
+                        className="input mt-1"
+                        name="paymentRef"
+                        defaultValue={o.paymentRef ?? ""}
+                        required
+                      />
                     </label>
                   </ActionForm>
                 )}

@@ -35,6 +35,13 @@ export const cryptoSellSchema = z.object({
   txHash: z.string().trim().max(120).optional(),
 });
 
+export const cryptoBuySchema = z.object({
+  symbol: z.enum(["USDT", "BTC", "ETH"]),
+  amountCrypto: z.coerce.number().positive(),
+  userReceiveAddress: z.string().trim().min(10).max(120),
+  paymentRef: z.string().trim().max(120).optional(),
+});
+
 export const giftCardSellSchema = z.object({
   brand: z.enum(["APPLE", "STEAM", "AMAZON", "GOOGLE"]),
   country: z.string().trim().min(2).max(40).default("USA"),
@@ -61,4 +68,5 @@ export const orderStatusSchema = z.object({
   ]),
   adminNote: z.string().trim().max(500).optional(),
   payoutRef: z.string().trim().max(120).optional(),
+  triggerPayout: z.coerce.boolean().optional(),
 });

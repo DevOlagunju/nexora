@@ -153,15 +153,24 @@ export default async function AdminPage() {
             {cryptoOrders.map((o) => (
               <article key={o.id} className="card-panel text-sm">
                 <p className="font-semibold">
-                  {o.reference} · {o.user.fullName}
+                  {o.reference} · {o.side} · {o.user.fullName}
                 </p>
                 <p className="text-ink-soft">
                   {o.amountCrypto} {o.symbol} @ {formatNgn(o.rateNgn)} = {formatNgn(o.amountNgn)} ·{" "}
                   {STATUS_LABEL[o.status]}
                 </p>
-                <p className="mt-1 break-all text-xs">
-                  TX: {o.txHash ? maskSecret(o.txHash, 8) : "—"} · Pay to {o.bankName} {o.accountNumber}
-                </p>
+                {o.side === "SELL" ? (
+                  <p className="mt-1 break-all text-xs">
+                    TX: {o.txHash ? maskSecret(o.txHash, 8) : "—"} · Pay to {o.bankName}{" "}
+                    {o.accountNumber}
+                  </p>
+                ) : (
+                  <p className="mt-1 break-all text-xs">
+                    Payment ref: {o.paymentRef ?? "—"} · Send to {o.userReceiveAddress}
+                    <br />
+                    Expected bank pay-in: {o.bankName} {o.accountNumber}
+                  </p>
+                )}
                 <ActionForm action={updateCryptoOrderAction} className="mt-3 grid gap-3 md:grid-cols-3">
                   <input type="hidden" name="id" value={o.id} />
                   <label>
@@ -182,6 +191,12 @@ export default async function AdminPage() {
                     Admin note
                     <input className="input mt-1" name="adminNote" defaultValue={o.adminNote ?? ""} />
                   </label>
+                  {o.side === "SELL" && (
+                    <label className="flex items-center gap-2 text-sm md:col-span-3">
+                      <input type="checkbox" name="triggerPayout" />
+                      Trigger Paystack NGN payout (sets status to PAYOUT_SENT)
+                    </label>
+                  )}
                 </ActionForm>
               </article>
             ))}
@@ -231,6 +246,10 @@ export default async function AdminPage() {
                     <label>
                       Admin note
                       <input className="input mt-1" name="adminNote" defaultValue={o.adminNote ?? ""} />
+                    </label>
+                    <label className="flex items-center gap-2 text-sm md:col-span-3">
+                      <input type="checkbox" name="triggerPayout" />
+                      Trigger Paystack NGN payout (sets status to PAYOUT_SENT)
                     </label>
                   </ActionForm>
                 </article>

@@ -120,26 +120,30 @@ model PlatformWallet {
 }
 
 model CryptoOrder {
-  id              String      @id @default(cuid())
-  reference       String      @unique
-  userId          String
-  symbol          String
-  network         String
-  side            TradeSide
-  amountCrypto    Float
-  rateNgn         Float
-  amountNgn       Float
-  depositAddress  String?
-  txHash          String?
-  bankName        String?
-  accountNumber   String?
-  accountName     String?
-  status          OrderStatus @default(AWAITING_DEPOSIT)
-  adminNote       String?
-  payoutRef       String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  completedAt     DateTime?
+  id                 String      @id @default(cuid())
+  reference          String      @unique
+  userId             String
+  symbol             String
+  network            String
+  side               TradeSide
+  amountCrypto       Float
+  rateNgn            Float
+  amountNgn          Float
+  depositAddress     String?
+  /// Where we send crypto when user is buying
+  userReceiveAddress String?
+  txHash             String?
+  bankName           String?
+  accountNumber      String?
+  accountName        String?
+  /// User bank payment reference when buying with NGN
+  paymentRef         String?
+  status             OrderStatus @default(AWAITING_DEPOSIT)
+  adminNote          String?
+  payoutRef          String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  completedAt        DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
