@@ -13,10 +13,11 @@ type MarketsResponse = {
   updatedAt: string;
   count: number;
   markets: MarketRow[];
+  cached?: boolean;
 };
 
 function ChangeCell({ value }: { value: number | null }) {
-  if (value == null) return <span className="text-ink-soft">—</span>;
+  if (value == null) return <span className="text-ink-soft">N/A</span>;
   const positive = value >= 0;
   return (
     <span className={positive ? "font-semibold text-emerald-600" : "font-semibold text-red-600"}>
@@ -26,10 +27,13 @@ function ChangeCell({ value }: { value: number | null }) {
   );
 }
 
+const POLL_MS = 60_000;
+
 export function LiveMarketsTable({ initial }: { initial: MarketRow[] }) {
   const [markets, setMarkets] = useState(initial);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [live, setLive] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async (silent = false) => {
@@ -38,19 +42,35 @@ export function LiveMarketsTable({ initial }: { initial: MarketRow[] }) {
       const res = await fetch("/api/markets", { cache: "no-store" });
       if (!res.ok) throw new Error("Feed failed");
       const data = (await res.json()) as MarketsResponse;
+      if (!data.markets?.length) throw new Error("Empty feed");
       setMarkets(data.markets);
       setUpdatedAt(data.updatedAt);
+      setLive(true);
       setError(null);
     } catch {
-      setError("Live feed paused — showing last known data.");
+      setLive(false);
+      setError("Reconnecting to live feed… last known data is shown.");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const id = window.setInterval(() => refresh(true), 45_000);
-    return () => window.clearInterval(id);
+    void refresh(true);
+
+    const id = window.setInterval(() => void refresh(true), POLL_MS);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh(true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
   }, [refresh]);
 
   return (
@@ -63,11 +83,12 @@ export function LiveMarketsTable({ initial }: { initial: MarketRow[] }) {
           <p className="text-sm text-ink-soft">
             {markets.length} matches
             {updatedAt ? ` · updated ${formatClockTime(updatedAt)}` : ""}
+            {live ? " · live" : " · reconnecting"}
           </p>
         </div>
         <button
           type="button"
-          onClick={() => refresh(false)}
+          onClick={() => void refresh(false)}
           disabled={loading}
           className="btn btn-ghost px-3 py-2 text-sm disabled:opacity-50"
         >

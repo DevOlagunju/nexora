@@ -21,6 +21,44 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(72),
 });
 
+const strongPassword = z
+  .string()
+  .min(10, "Password must be at least 10 characters")
+  .max(72)
+  .regex(/[A-Z]/, "Include an uppercase letter")
+  .regex(/[a-z]/, "Include a lowercase letter")
+  .regex(/[0-9]/, "Include a number");
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required").max(72),
+    newPassword: strongPassword,
+    confirmPassword: z.string().min(1).max(72),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, {
+    message: "New passwords do not match",
+    path: ["confirmPassword"],
+  })
+  .refine((d) => d.currentPassword !== d.newPassword, {
+    message: "New password must be different from the current one",
+    path: ["newPassword"],
+  });
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().email().max(120),
+});
+
+export const resetPasswordSchema = z
+  .object({
+    token: z.string().trim().min(20).max(200),
+    newPassword: strongPassword,
+    confirmPassword: z.string().min(1).max(72),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, {
+    message: "New passwords do not match",
+    path: ["confirmPassword"],
+  });
+
 export const kycSchema = z.object({
   bvn: z.string().regex(/^\d{11}$/, "BVN must be 11 digits"),
   nin: z.string().regex(/^\d{11}$/, "NIN must be 11 digits"),
@@ -59,6 +97,7 @@ export const rateUpdateSchema = z.object({
 export const orderStatusSchema = z.object({
   id: z.string().min(1),
   status: z.enum([
+    "AWAITING_DEPOSIT",
     "UNDER_REVIEW",
     "APPROVED",
     "PAYOUT_SENT",

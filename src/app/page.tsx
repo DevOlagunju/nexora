@@ -1,224 +1,171 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { fetchLiveMarkets } from "@/lib/markets";
 import { formatNgn } from "@/lib/format";
-import { LiveMarketsTable } from "@/components/live-markets-table";
+import { fetchLiveMarkets } from "@/lib/markets-live";
 import { UsdtNgnLiveCard } from "@/components/usdt-ngn-live";
+import { QuickPayout } from "@/components/quick-payout";
+import { RateSellLists } from "@/components/rate-sell-lists";
+import { MarketTicker } from "@/components/market-ticker";
+import { Reveal } from "@/components/reveal";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
 
 export default async function HomePage() {
   const user = await getSessionUser();
 
-  const [rates, liveMarkets, ngnPayload] = await Promise.all([
-    prisma.rate.findMany({
-      where: { isActive: true },
-      orderBy: { sortOrder: "asc" },
-    }),
-    fetchLiveMarkets(30).catch(() => []),
-    (async () => {
-      try {
-        const { fetchRateBenchmark, deskQuotesFromBenchmark } = await import("@/lib/rate-benchmark");
-        const benchmark = await fetchRateBenchmark();
-        const desk = deskQuotesFromBenchmark(benchmark);
-        await Promise.all(
-          (["USDT", "BTC", "ETH"] as const).map((symbol) =>
-            prisma.rate.updateMany({
-              where: { kind: "CRYPTO", symbol },
-              data: {
-                sellRateNgn: desk[symbol].sell,
-                buyRateNgn: desk[symbol].buy,
-              },
-            }),
-          ),
-        );
-        return {
-          market: {
-            usdtNgn: benchmark.referenceMid,
-            btcNgn: desk.BTC.mid,
-            ethNgn: desk.ETH.mid,
-            fetchedAt: benchmark.fetchedAt,
-          },
-          desk: {
-            USDT: desk.USDT,
-            BTC: desk.BTC,
-            ETH: desk.ETH,
-          },
-        };
-      } catch {
-        return null;
-      }
-    })(),
-  ]);
+  const [rates, ngnPayload, liveMarkets] = await loadHomeData();
 
-  const refreshedRates = ngnPayload
-    ? await prisma.rate.findMany({
-        where: { isActive: true },
-        orderBy: { sortOrder: "asc" },
-      })
-    : rates;
+  const cryptoRates = rates.filter((r) => r.kind === "CRYPTO");
+  const giftRates = rates.filter((r) => r.kind === "GIFTCARD");
+  const usdtSell =
+    cryptoRates.find((r) => r.symbol === "USDT")?.sellRateNgn ??
+    ngnPayload?.desk.USDT.sell ??
+    0;
+  const appleSell = giftRates.find((r) => r.symbol === "APPLE")?.sellRateNgn ?? 0;
 
-  const cryptoRates = refreshedRates.filter((r) => r.kind === "CRYPTO");
-  const giftRates = refreshedRates.filter((r) => r.kind === "GIFTCARD");
-  const usdtSell = ngnPayload?.desk.USDT.sell ?? cryptoRates.find((r) => r.symbol === "USDT")?.sellRateNgn ?? 0;
+  const estimateOptions = [
+    ...cryptoRates.map((r) => ({
+      symbol: r.symbol,
+      displayName: r.displayName,
+      sellRateNgn: r.sellRateNgn,
+      kind: "CRYPTO" as const,
+    })),
+    ...giftRates.map((r) => ({
+      symbol: r.symbol,
+      displayName: r.displayName,
+      sellRateNgn: r.sellRateNgn,
+      kind: "GIFTCARD" as const,
+    })),
+  ];
 
   return (
     <>
       <SiteHeader user={user} />
       <main>
         <section className="hero-grid relative overflow-hidden text-white">
-          <div className="mx-auto grid max-w-6xl gap-10 px-4 pb-20 pt-16 md:grid-cols-[1.1fr_0.9fr] md:items-end md:pt-24">
+          <div className="hero-orb hero-orb--a" aria-hidden />
+          <div className="hero-orb hero-orb--b" aria-hidden />
+          <div className="mx-auto grid max-w-6xl gap-10 px-4 pb-20 pt-16 md:grid-cols-[1.15fr_0.85fr] md:items-end md:pt-24">
             <div>
               <p className="animate-rise font-[family-name:var(--font-display)] text-5xl font-bold tracking-tight md:text-7xl">
                 Nexora
               </p>
               <h1 className="animate-rise stagger-1 mt-4 max-w-xl text-2xl font-semibold text-white/90 md:text-3xl">
-                Crypto and gift cards to Naira — verified, fast, Nigeria-first.
+                Crypto and gift cards to Naira - verified, fast, Nigeria-first.
               </h1>
               <p className="animate-rise stagger-2 mt-4 max-w-lg text-base text-white/65">
-                Live desk rates. Encrypted card codes. Bank payouts after confirmation.
+                Live rates. Encrypted card codes. Bank payouts after confirmation.
               </p>
               <div className="animate-rise stagger-3 mt-8 flex flex-wrap gap-3">
                 <Link href={user ? "/dashboard" : "/register"} className="btn btn-primary">
                   {user ? "Open dashboard" : "Create free account"}
                 </Link>
                 <Link href="/rates" className="btn glass text-white">
-                  Rate calculator
+                  Check rates
                 </Link>
               </div>
             </div>
             <div className="animate-float relative hidden md:block">
-              <div className="glass rounded-[2rem] p-6">
-                <p className="text-sm uppercase tracking-[0.2em] text-accent">Today</p>
-                <p className="mt-2 font-[family-name:var(--font-display)] text-3xl font-bold">
-                  Sell · Settle · Done
+              <div className="glass hero-rate-card rounded-[2rem] p-6">
+                <p className="text-sm uppercase tracking-[0.2em] text-accent">Today&apos;s sell</p>
+                <p className="mt-2 font-[family-name:var(--font-display)] text-4xl font-bold tracking-tight tabular-nums">
+                  {formatNgn(usdtSell)}
                 </p>
+                <p className="mt-1 text-sm uppercase tracking-[0.12em] text-white/55">USDT sell rate</p>
                 <ul className="mt-6 space-y-3 text-sm text-white/80">
                   <li className="flex justify-between border-b border-white/10 pb-2">
-                    <span>USDT sell</span>
-                    <span className="text-accent">{formatNgn(usdtSell)}</span>
-                  </li>
-                  <li className="flex justify-between border-b border-white/10 pb-2">
                     <span>Apple GC</span>
-                    <span className="text-gold">
-                      {formatNgn(giftRates.find((r) => r.symbol === "APPLE")?.sellRateNgn ?? 0)}/$
-                    </span>
+                    <span className="text-gold tabular-nums">{formatNgn(appleSell)}/$</span>
                   </li>
                   <li className="flex justify-between">
-                    <span>Payout rail</span>
+                    <span>Payout</span>
                     <span>NGN bank transfer</span>
                   </li>
                 </ul>
               </div>
             </div>
           </div>
-          <svg className="wave-divider relative -mb-px" viewBox="0 0 1440 56" preserveAspectRatio="none" aria-hidden>
-            <path fill="currentColor" d="M0,32 C240,56 480,0 720,16 C960,32 1200,56 1440,24 L1440,56 L0,56 Z" />
+          <svg
+            className="wave-divider relative -mb-px"
+            viewBox="0 0 1440 56"
+            preserveAspectRatio="none"
+            aria-hidden
+          >
+            <path
+              fill="currentColor"
+              d="M0,32 C240,56 480,0 720,16 C960,32 1200,56 1440,24 L1440,56 L0,56 Z"
+            />
           </svg>
         </section>
 
-        <div className="bg-ink text-center text-sm text-white">
-          <p className="px-4 py-3">Outstanding service · Competitive rates · Fast & secure payout</p>
-        </div>
+        <MarketTicker initial={liveMarkets} />
 
-        <section id="live-market" className="mx-auto max-w-7xl px-4 py-16">
-          <p className="badge">Live crypto market</p>
-          <h2 className="mt-3 font-[family-name:var(--font-display)] text-3xl font-bold text-ink">
-            Live crypto market rates
-          </h2>
-          <p className="mt-2 max-w-2xl text-ink-soft">
-            Real-time global market data — market cap, price, supply, volume, and 24h change. Auto-refreshes
-            every 45 seconds.
-          </p>
-          <div className="mt-8">
-            {liveMarkets.length > 0 ? (
-              <LiveMarketsTable initial={liveMarkets} />
-            ) : (
-              <div className="card-panel text-sm text-ink-soft">
-                Live market feed is temporarily unavailable. Desk sell rates below are still active.
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section id="rates" className="mx-auto max-w-6xl px-4 pb-16">
-          <p className="badge">Live desk rates</p>
-          <h2 className="mt-3 font-[family-name:var(--font-display)] text-3xl font-bold text-ink">
-            1 USDT → Naira
-          </h2>
-          <p className="mt-2 max-w-2xl text-ink-soft">
-            Live rates for crypto sells. Use the{" "}
-            <Link href="/rates" className="font-semibold text-accent-deep underline">
-              calculator
-            </Link>{" "}
-            to see your payout before you trade.
-          </p>
-
-          <div className="mt-8">
-            <UsdtNgnLiveCard initial={ngnPayload} />
-          </div>
-
-          <div className="mt-8 grid gap-4 md:grid-cols-2">
-            <div className="card-panel">
-              <h3 className="font-semibold text-ink">Crypto sell rates (desk)</h3>
-              <ul className="mt-4 divide-y divide-[var(--line)]">
-                {cryptoRates.map((r) => (
-                  <li key={r.id} className="flex items-center justify-between py-3 text-sm">
-                    <span>
-                      {r.displayName}
-                      <span className="block text-xs text-ink-soft">Sell rate</span>
-                    </span>
-                    <span className="font-semibold text-accent-deep">{formatNgn(r.sellRateNgn)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="card-panel">
-              <h3 className="font-semibold text-ink">Gift cards (per $1)</h3>
-              <ul className="mt-4 divide-y divide-[var(--line)]">
-                {giftRates.map((r) => (
-                  <li key={r.id} className="flex items-center justify-between py-3 text-sm">
-                    <span>
-                      {r.displayName}
-                      <span className="block text-xs text-ink-soft">Sell rate</span>
-                    </span>
-                    <span className="font-semibold text-accent-deep">{formatNgn(r.sellRateNgn)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </section>
-
-        <section id="how" className="bg-paper-deep py-16">
-          <div className="mx-auto max-w-6xl px-4">
-            <h2 className="font-[family-name:var(--font-display)] text-3xl font-bold text-ink">
-              How Nexora works
+        <section id="rates" className="mx-auto max-w-6xl px-4 py-16">
+          <Reveal>
+            <p className="section-label">Rates</p>
+            <h2 className="mt-3 font-[family-name:var(--font-display)] text-3xl font-bold text-ink">
+              What you get today
             </h2>
-            <p className="mt-2 max-w-xl text-ink-soft">
-              Hybrid operations: automated account flows, human verification on value movement.
+            <p className="mt-2 max-w-2xl text-ink-soft">
+              Your order locks at the rate shown when you trade. Full market table and calculator live
+              on{" "}
+              <Link href="/rates" className="font-semibold text-accent-deep underline">
+                Rates
+              </Link>
+              .
             </p>
-            <ol className="mt-8 grid gap-4 md:grid-cols-3">
+          </Reveal>
+
+          <Reveal className="mt-8" delay={60}>
+            <UsdtNgnLiveCard initial={ngnPayload} />
+          </Reveal>
+
+          <div className="mt-10 grid items-start gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+            <Reveal delay={80}>
+              <RateSellLists cryptoRates={cryptoRates} giftRates={giftRates} />
+            </Reveal>
+            <Reveal delay={120}>
+              <QuickPayout options={estimateOptions} ctaHref={user ? "/dashboard" : "/register"} />
+            </Reveal>
+          </div>
+        </section>
+
+        <section id="how" className="border-y border-[var(--line)] bg-paper-deep/70 py-16">
+          <div className="mx-auto max-w-6xl px-4">
+            <Reveal>
+              <p className="section-label">How it works</p>
+              <h2 className="mt-3 font-[family-name:var(--font-display)] text-3xl font-bold text-ink">
+                Verify once. Trade. Get paid.
+              </h2>
+              <p className="mt-2 max-w-xl text-ink-soft">
+                Accounts and tracking are automated. Value movement is desk-confirmed.
+              </p>
+            </Reveal>
+            <ol className="flow-row mt-10">
               {[
                 {
                   n: "01",
                   t: "Verify once",
-                  d: "Register with Nigeria phone details, submit BVN/NIN last-4 + bank account for KYC.",
+                  d: "Register, then submit BVN/NIN last-4 + bank for KYC.",
                 },
                 {
                   n: "02",
-                  t: "Create a sell order",
-                  d: "Crypto: send to our wallet and paste TX hash. Gift cards: submit code (encrypted at rest).",
+                  t: "Create an order",
+                  d: "Sell crypto or a gift card, or buy crypto with Naira.",
                 },
                 {
                   n: "03",
                   t: "Get paid in Naira",
-                  d: "Desk confirms receipt, marks payout, and you track status from your dashboard.",
+                  d: "Desk confirms, payouts land in your bank - track in Orders.",
                 },
-              ].map((step) => (
-                <li key={step.n} className="card-panel">
-                  <p className="text-sm font-bold text-accent">{step.n}</p>
-                  <h3 className="mt-2 text-lg font-semibold">{step.t}</h3>
+              ].map((step, i) => (
+                <li
+                  key={step.n}
+                  className="flow-item list-none animate-rise"
+                  style={{ animationDelay: `${0.08 + i * 0.1}s` }}
+                >
+                  <p className="n">{step.n}</p>
+                  <h3 className="mt-2 text-lg font-semibold text-ink">{step.t}</h3>
                   <p className="mt-2 text-sm text-ink-soft">{step.d}</p>
                 </li>
               ))}
@@ -227,47 +174,103 @@ export default async function HomePage() {
         </section>
 
         <section id="faq" className="mx-auto max-w-6xl px-4 py-16">
-          <h2 className="font-[family-name:var(--font-display)] text-3xl font-bold">FAQ</h2>
-          <div className="mt-6 space-y-3">
+          <Reveal>
+            <p className="section-label">FAQ</p>
+            <h2 className="mt-3 font-[family-name:var(--font-display)] text-3xl font-bold">
+              Straight answers
+            </h2>
+          </Reveal>
+          <div className="mt-8 space-y-0 divide-y divide-[var(--line)] border-t border-[var(--line)]">
             {[
               {
                 q: "Is this a full automated exchange?",
-                a: "Nexora uses hybrid ops: accounts, rates, and order tracking are automated; crypto deposits and gift cards are desk-verified before Naira payout for fraud control.",
+                a: "Nexora is hybrid: accounts, rates, and order tracking are automated; deposits and gift cards are desk-verified before Naira payout.",
               },
               {
                 q: "Which assets can I sell?",
-                a: "USDT, BTC, ETH, plus Apple, Steam, Amazon, and Google Play gift cards — with admin-managed rates.",
+                a: "USDT, BTC, ETH, plus Apple, Steam, Amazon, and Google Play gift cards - with admin-managed rates.",
               },
               {
                 q: "How do you protect gift card codes?",
-                a: "Codes are encrypted with AES-256-GCM before storage. Only authorized admin workflows can decrypt during verification.",
+                a: "Codes are encrypted with AES-256-GCM before storage. Only authorized admin workflows decrypt during verification.",
               },
             ].map((item) => (
-              <details key={item.q} className="card-panel group">
-                <summary className="cursor-pointer list-none font-semibold marker:content-none">
-                  {item.q}
+              <details key={item.q} className="faq-item group py-4">
+                <summary className="faq-summary cursor-pointer list-none font-semibold text-ink marker:content-none">
+                  <span>{item.q}</span>
+                  <span className="faq-plus" aria-hidden>
+                    +
+                  </span>
                 </summary>
-                <p className="mt-2 text-sm text-ink-soft">{item.a}</p>
+                <p className="faq-answer mt-2 max-w-2xl text-sm text-ink-soft">{item.a}</p>
               </details>
             ))}
           </div>
         </section>
 
         <section className="mx-auto max-w-6xl px-4 pb-20">
-          <div className="overflow-hidden rounded-[2rem] bg-ink px-6 py-10 text-white md:px-10">
-            <h2 className="font-[family-name:var(--font-display)] text-3xl font-bold">
-              Ready to trade with confidence?
-            </h2>
-            <p className="mt-2 max-w-lg text-white/70">
-              Web first. Native app next. Same secure backend.
-            </p>
-            <Link href={user ? "/dashboard" : "/register"} className="btn btn-primary mt-6 inline-flex">
-              {user ? "Go to dashboard" : "Get started"}
-            </Link>
-          </div>
+          <Reveal>
+            <div className="cta-panel overflow-hidden rounded-[2rem] bg-ink px-6 py-10 text-white md:px-10">
+              <h2 className="font-[family-name:var(--font-display)] text-3xl font-bold">
+                Ready to trade with confidence?
+              </h2>
+              <p className="mt-2 max-w-lg text-white/70">
+                Same secure backend on web and mobile. Start with KYC, then sell or buy.
+              </p>
+              <Link
+                href={user ? "/dashboard" : "/register"}
+                className="btn btn-primary mt-6 inline-flex"
+              >
+                {user ? "Go to dashboard" : "Get started"}
+              </Link>
+            </div>
+          </Reveal>
         </section>
       </main>
       <SiteFooter />
     </>
   );
+}
+
+async function loadHomeData() {
+  const ratesPromise = prisma.rate.findMany({
+    where: { isActive: true },
+    orderBy: { sortOrder: "asc" },
+  });
+  const marketsPromise = fetchLiveMarkets(16).catch(() => []);
+
+  const rates = await ratesPromise;
+  const liveMarkets = await marketsPromise;
+
+  let ngnPayload: {
+    market: { usdtNgn: number; btcNgn: number; ethNgn: number; fetchedAt: string };
+    desk: {
+      USDT: { mid: number; sell: number; buy: number };
+      BTC: { mid: number; sell: number; buy: number };
+      ETH: { mid: number; sell: number; buy: number };
+    };
+  } | null = null;
+
+  try {
+    const { fetchRateBenchmark, deskQuotesFromBenchmark } = await import("@/lib/rate-benchmark");
+    const benchmark = await fetchRateBenchmark();
+    const desk = deskQuotesFromBenchmark(benchmark);
+    ngnPayload = {
+      market: {
+        usdtNgn: benchmark.referenceMid,
+        btcNgn: desk.BTC.mid,
+        ethNgn: desk.ETH.mid,
+        fetchedAt: benchmark.fetchedAt,
+      },
+      desk: {
+        USDT: desk.USDT,
+        BTC: desk.BTC,
+        ETH: desk.ETH,
+      },
+    };
+  } catch {
+    ngnPayload = null;
+  }
+
+  return [rates, ngnPayload, liveMarkets] as const;
 }

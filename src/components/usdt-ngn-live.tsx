@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { formatNgn, formatClockTime } from "@/lib/format";
 
 type NgnPayload = {
@@ -20,23 +20,39 @@ type NgnPayload = {
 export function UsdtNgnLiveCard({ initial }: { initial: NgnPayload | null }) {
   const [data, setData] = useState(initial);
   const [loading, setLoading] = useState(false);
+  const [flash, setFlash] = useState(false);
+  const prevSell = useRef(initial?.desk.USDT.sell);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/ngn-rates", { cache: "no-store" });
       if (!res.ok) return;
-      setData((await res.json()) as NgnPayload);
+      const next = (await res.json()) as NgnPayload;
+      if (prevSell.current != null && prevSell.current !== next.desk.USDT.sell) {
+        setFlash(true);
+        window.setTimeout(() => setFlash(false), 700);
+      }
+      prevSell.current = next.desk.USDT.sell;
+      setData(next);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    void refresh();
     const id = window.setInterval(() => {
       void refresh();
-    }, 45_000);
-    return () => window.clearInterval(id);
+    }, 30_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refresh]);
 
   if (!data) {
@@ -53,12 +69,11 @@ export function UsdtNgnLiveCard({ initial }: { initial: NgnPayload | null }) {
     <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-[0_12px_40px_rgba(7,16,24,0.06)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[#fafbfc] px-4 py-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent-deep">
-            Live USDT → Naira
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-accent-deep">
+            <span className="live-dot" aria-hidden />
+            Live USDT rate
           </p>
-          <p className="text-sm text-ink-soft">
-            Updated {formatClockTime(market.fetchedAt)}
-          </p>
+          <p className="text-sm text-ink-soft">Updated {formatClockTime(market.fetchedAt)}</p>
         </div>
         <button
           type="button"
@@ -71,19 +86,19 @@ export function UsdtNgnLiveCard({ initial }: { initial: NgnPayload | null }) {
       </div>
 
       <div className="grid gap-4 p-4 md:grid-cols-2">
-        <div className="rounded-xl bg-emerald-50 p-4">
+        <div className={`rounded-xl bg-emerald-50 p-4 ${flash ? "rate-flash" : ""}`}>
           <p className="text-xs uppercase tracking-wide text-accent-deep">Sell rate (you get)</p>
-          <p className="mt-1 font-[family-name:var(--font-display)] text-3xl font-bold text-accent-deep">
+          <p className="mt-1 font-[family-name:var(--font-display)] text-3xl font-bold tabular-nums text-accent-deep">
             {formatNgn(desk.USDT.sell)}
           </p>
-          <p className="mt-1 text-xs text-ink-soft">Per 1 USDT</p>
+          <p className="mt-1 text-xs text-ink-soft">USDT / NGN</p>
         </div>
         <div className="rounded-xl bg-amber-50 p-4">
           <p className="text-xs uppercase tracking-wide text-amber-800">Buy rate (you pay)</p>
-          <p className="mt-1 font-[family-name:var(--font-display)] text-3xl font-bold text-amber-900">
+          <p className="mt-1 font-[family-name:var(--font-display)] text-3xl font-bold tabular-nums text-amber-900">
             {formatNgn(desk.USDT.buy)}
           </p>
-          <p className="mt-1 text-xs text-ink-soft">Per 1 USDT</p>
+          <p className="mt-1 text-xs text-ink-soft">USDT / NGN</p>
         </div>
       </div>
     </div>

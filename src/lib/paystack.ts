@@ -75,7 +75,7 @@ export async function createTransferRecipient(input: {
   });
 }
 
-/** Amount in NGN — Paystack expects kobo (x100). */
+/** Amount in NGN  -  Paystack expects kobo (x100). */
 export async function initiateNgnTransfer(input: {
   amountNgn: number;
   recipientCode: string;
@@ -104,7 +104,7 @@ export async function payoutSellOrder(input: {
   orderReference: string;
 }) {
   if (!paystackConfigured()) {
-    return { ok: false as const, message: "Paystack not configured — mark payout manually." };
+    return { ok: false as const, message: "Paystack not configured  -  mark payout manually." };
   }
   const bankCode = guessBankCode(input.bankName);
   if (!bankCode) {
@@ -118,11 +118,13 @@ export async function payoutSellOrder(input: {
     accountNumber: input.accountNumber,
     bankCode,
   });
+  // Stable reference so Paystack rejects duplicate transfer attempts for the same order.
+  const stableRef = `nxp-${input.orderReference.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 40)}`;
   const transfer = await initiateNgnTransfer({
     amountNgn: input.amountNgn,
     recipientCode: recipient.recipient_code,
     reason: `Nexora payout ${input.orderReference}`,
-    reference: `${input.orderReference}-${Date.now()}`,
+    reference: stableRef,
   });
   return {
     ok: true as const,

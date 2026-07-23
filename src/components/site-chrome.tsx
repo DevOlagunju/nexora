@@ -6,22 +6,19 @@ export function SiteHeader({ user }: { user?: SessionUser | null }) {
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--paper)_88%,transparent)] backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-        <Link href="/" className="flex items-center gap-2 font-[family-name:var(--font-display)] text-xl font-bold tracking-tight text-ink">
+        <Link
+          href="/"
+          className="flex items-center gap-2 font-[family-name:var(--font-display)] text-xl font-bold tracking-tight text-ink"
+        >
           <span className="grid h-8 w-8 place-items-center rounded-full bg-ink text-sm text-accent">N</span>
           Nexora
         </Link>
         <nav className="hidden items-center gap-6 text-sm text-ink-soft md:flex">
-          <a href="/rates" className="hover:text-ink">
+          <Link href="/rates" className="hover:text-ink">
             Rates
-          </a>
-          <a href="/#live-market" className="hover:text-ink">
-            Live market
-          </a>
+          </Link>
           <a href="/#how" className="hover:text-ink">
             How it works
-          </a>
-          <a href="/#faq" className="hover:text-ink">
-            FAQ
           </a>
           {user ? (
             <>
@@ -68,8 +65,8 @@ export function SiteHeader({ user }: { user?: SessionUser | null }) {
 
 export function SiteFooter() {
   return (
-    <footer className="mt-auto border-t border-[var(--line)] bg-ink px-4 py-6 text-center text-sm text-white/60">
-      © {new Date().getFullYear()} Nexora
+    <footer className="mt-auto border-t border-[var(--line)] bg-ink px-4 py-8 text-center text-sm text-white/60">
+      <p>© {new Date().getFullYear()} Nexora. All rights reserved.</p>
     </footer>
   );
 }

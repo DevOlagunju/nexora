@@ -28,7 +28,7 @@ export async function verifyKycIdentity(input: KycCheckInput): Promise<KycCheckR
     };
   }
 
-  // Placeholder for Prembly/Dojah REST calls — do not send secrets to client.
+  // Placeholder for Prembly/Dojah REST calls  -  do not send secrets to client.
   // Example flow: POST provider API with BVN/NIN, map response to APPROVED/REJECTED.
   void input;
   return {

@@ -77,7 +77,7 @@ export function RateCalculator({ desk }: { desk: Desk }) {
       <div className="mt-5 rounded-xl bg-paper-deep p-4">
         <p className="text-xs uppercase tracking-wide text-ink-soft">
           {side === "sell" ? "You receive" : "You pay"} ·{" "}
-          {quote ? formatNgn(quote.rate) : "—"}/{ASSETS.find((a) => a.id === asset)?.unit}
+          {quote ? formatNgn(quote.rate) : "N/A"}/{ASSETS.find((a) => a.id === asset)?.unit}
         </p>
         <p className="mt-1 font-[family-name:var(--font-display)] text-3xl font-bold text-ink">
           {quote ? formatNgn(quote.payout) : "₦0"}

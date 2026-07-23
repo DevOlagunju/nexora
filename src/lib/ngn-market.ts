@@ -11,7 +11,7 @@ export type NgnMarketQuote = {
   nexoraBuy: number;
 };
 
-/** Live NGN desk pricing — CoinGecko + Jeroid only */
+/** Live NGN desk pricing  -  CoinGecko + Jeroid only */
 export async function fetchNgnMarket(): Promise<NgnMarketQuote> {
   const b = await fetchRateBenchmark();
   return {

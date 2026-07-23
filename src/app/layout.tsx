@@ -14,7 +14,7 @@ const display = Sora({
 });
 
 export const metadata: Metadata = {
-  title: "Nexora — Crypto & Gift Cards to Naira",
+  title: "Nexora  -  Crypto & Gift Cards to Naira",
   description:
     "Sell crypto and gift cards for Naira in Nigeria. Fast rates, verified payouts, secure by design.",
 };
@@ -25,8 +25,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${body.variable} ${display.variable} h-full antialiased`}>
-      <body className="flex min-h-full flex-col font-sans">{children}</body>
+    <html
+      lang="en"
+      className={`${body.variable} ${display.variable} h-full antialiased`}
+      suppressHydrationWarning
+    >
+      <body className="flex min-h-full flex-col font-sans" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }

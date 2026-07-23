@@ -11,10 +11,10 @@ export function formatCrypto(amount: number, symbol: string): string {
   return `${amount.toFixed(digits)} ${symbol}`;
 }
 
-/** Locale-stable clock — avoids SSR/client hydration mismatches from toLocaleTimeString() */
+/** Locale-stable clock  -  avoids SSR/client hydration mismatches from toLocaleTimeString() */
 export function formatClockTime(iso: string | Date): string {
   const d = typeof iso === "string" ? new Date(iso) : iso;
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "N/A";
   return new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     minute: "2-digit",

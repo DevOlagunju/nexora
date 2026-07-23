@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.staging.example
 *.pem
 *.p12
 *.key
@@ -19,6 +20,7 @@ prisma/dev.db-*
 uploads/
 .tmp/
 tmp/
+backups/
 
 # Generated code
 src/generated/

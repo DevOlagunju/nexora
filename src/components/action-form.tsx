@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { ActionResult } from "@/app/actions";
 
@@ -10,16 +11,31 @@ export function ActionForm({
   className,
   onSuccess,
   submitLabel = "Submit",
+  resetOnSuccess = true,
+  submitVariant = "primary",
 }: {
   action: (formData: FormData) => Promise<ActionResult>;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   className?: string;
   onSuccess?: () => void;
   submitLabel?: string;
+  /** Set false for edit forms (admin status updates) so fields keep submitted values until refresh. */
+  resetOnSuccess?: boolean;
+  submitVariant?: "primary" | "dark" | "ghost" | "danger";
 }) {
+  const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+
+  const btnClass =
+    submitVariant === "dark"
+      ? "btn btn-dark"
+      : submitVariant === "ghost"
+        ? "btn btn-ghost"
+        : submitVariant === "danger"
+          ? "btn btn-danger"
+          : "btn btn-primary";
 
   return (
     <form
@@ -36,13 +52,14 @@ export function ActionForm({
             if (res.ok) {
               setMessage(res.message ?? "Done.");
               onSuccess?.();
-              form.reset();
+              if (resetOnSuccess) form.reset();
+              router.refresh();
             } else {
               setError(res.error);
             }
           } catch (err) {
             if (isRedirectError(err)) throw err;
-            setError("Something went wrong. Please try again.");
+            setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
           }
         });
       }}
@@ -58,8 +75,8 @@ export function ActionForm({
           {message}
         </p>
       )}
-      <button type="submit" disabled={pending} className="btn btn-primary mt-4 w-full disabled:opacity-60">
-        {pending ? "Please wait…" : submitLabel}
+      <button type="submit" disabled={pending} className={`${btnClass} mt-4 w-full disabled:opacity-60`}>
+        {pending ? "Please wait..." : submitLabel}
       </button>
     </form>
   );

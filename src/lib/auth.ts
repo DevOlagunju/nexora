@@ -99,6 +99,18 @@ export async function destroySession(tokenOverride?: string) {
   if (!tokenOverride) jar.delete(COOKIE_NAME);
 }
 
+/** Revoke every session for a user. Clears web cookie when it belongs to that user. */
+export async function destroyAllSessionsForUser(
+  userId: string,
+  opts?: { clearCookie?: boolean },
+) {
+  await prisma.session.deleteMany({ where: { userId } });
+  if (opts?.clearCookie !== false) {
+    const jar = await cookies();
+    jar.delete(COOKIE_NAME);
+  }
+}
+
 export async function getSessionUser(): Promise<SessionUser | null> {
   const jar = await cookies();
   const token = jar.get(COOKIE_NAME)?.value;

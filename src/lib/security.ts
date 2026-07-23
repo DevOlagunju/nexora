@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 
 const hits = new Map<string, { count: number; resetAt: number }>();
 
-/** Simple in-memory rate limit — swap for Redis in production multi-instance */
+/** Simple in-memory rate limit  -  swap for Redis in production multi-instance */
 export function rateLimit(key: string, limit = 20, windowMs = 60_000): boolean {
   const now = Date.now();
   const row = hits.get(key);

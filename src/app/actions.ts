@@ -2,14 +2,17 @@
 
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { createSession, destroySession, getSessionUser, requireAdmin, requireUser } from "@/lib/auth";
-import { encryptSecret, orderReference, maskSecret } from "@/lib/crypto";
+import { createSession, destroySession, destroyAllSessionsForUser, getSessionUser, requireAdmin, requireUser } from "@/lib/auth";
+import { decryptSecret, encryptSecret, orderReference, maskSecret } from "@/lib/crypto";
 import { rateLimit, writeAudit } from "@/lib/security";
-import { deskQuotesFromMarket, fetchNgnMarket } from "@/lib/ngn-market";
 import {
   registerSchema,
   loginSchema,
+  changePasswordSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
   kycSchema,
   cryptoSellSchema,
   cryptoBuySchema,
@@ -17,10 +20,14 @@ import {
   rateUpdateSchema,
   orderStatusSchema,
 } from "@/lib/validators";
+import { requestPasswordReset, consumePasswordReset } from "@/lib/password-reset";
 import { notifyAdmin } from "@/lib/notify";
+import { notifyOrderStatus } from "@/lib/notify-user";
 import { verifyKycIdentity } from "@/lib/kyc-provider";
 import { paystackConfigured, payoutSellOrder } from "@/lib/paystack";
 import { platformBankDetails } from "@/lib/platform-bank";
+import { assertDailyTradeAllowed, assessGiftCardRisk } from "@/lib/trade-limits";
+import { fetchReliableDeskBenchmark, deskQuotesFromBenchmark } from "@/lib/rate-benchmark";
 import { headers } from "next/headers";
 
 async function clientIp() {
@@ -28,7 +35,19 @@ async function clientIp() {
   return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
 }
 
-export type ActionResult = { ok: true; message?: string } | { ok: false; error: string };
+/** Refresh admin + user views after desk mutations */
+function revalidateTradeViews() {
+  revalidatePath("/admin");
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/orders");
+  revalidatePath("/dashboard/kyc");
+  revalidatePath("/rates");
+  revalidatePath("/");
+}
+
+export type ActionResult =
+  | { ok: true; message?: string; code?: string }
+  | { ok: false; error: string };
 
 export async function registerAction(formData: FormData): Promise<ActionResult> {
   const ip = await clientIp();
@@ -130,6 +149,109 @@ export async function logoutAction() {
   redirect("/");
 }
 
+export async function changePasswordAction(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const ip = await clientIp();
+  if (!rateLimit(`pwd:${user.id}`, 5, 60_000)) {
+    return { ok: false, error: "Too many attempts. Try again shortly." };
+  }
+
+  const parsed = changePasswordSchema.safeParse({
+    currentPassword: formData.get("currentPassword"),
+    newPassword: formData.get("newPassword"),
+    confirmPassword: formData.get("confirmPassword"),
+  });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
+  if (!dbUser) return { ok: false, error: "Account not found." };
+
+  const valid = await bcrypt.compare(parsed.data.currentPassword, dbUser.passwordHash);
+  if (!valid) {
+    await writeAudit("user.password_change_failed", { userId: user.id, ip });
+    return { ok: false, error: "Current password is incorrect." };
+  }
+
+  const passwordHash = await bcrypt.hash(parsed.data.newPassword, 12);
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+  await destroyAllSessionsForUser(user.id);
+  const h = await headers();
+  await createSession(user, { userAgent: h.get("user-agent") ?? undefined, ip });
+
+  await writeAudit("user.password_change", { userId: user.id, ip });
+  revalidatePath("/dashboard/settings");
+  return { ok: true, message: "Password updated. Other devices were signed out." };
+}
+
+export async function logoutAllSessionsAction(_formData?: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  await destroyAllSessionsForUser(user.id);
+  await writeAudit("user.logout_all", { userId: user.id, ip: await clientIp() });
+  redirect("/login");
+}
+
+export async function forgotPasswordAction(formData: FormData): Promise<ActionResult> {
+  const ip = await clientIp();
+  if (!rateLimit(`forgot:${ip}`, 5, 60_000)) {
+    return { ok: false, error: "Too many attempts. Try again shortly." };
+  }
+
+  const parsed = forgotPasswordSchema.safeParse({
+    email: formData.get("email"),
+  });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid email" };
+  }
+
+  if (!rateLimit(`forgot-email:${parsed.data.email.toLowerCase()}`, 3, 15 * 60_000)) {
+    return { ok: false, error: "Too many reset emails for this address. Try again later." };
+  }
+
+  const result = await requestPasswordReset(parsed.data.email);
+  await writeAudit("user.password_reset_request", {
+    ip,
+    meta: { email: parsed.data.email.toLowerCase() },
+  });
+
+  const message =
+    result.debugResetUrl && process.env.NODE_ENV !== "production"
+      ? `${result.message} Dev link: ${result.debugResetUrl}`
+      : result.message;
+
+  return { ok: true, message };
+}
+
+export async function resetPasswordAction(formData: FormData): Promise<ActionResult> {
+  const ip = await clientIp();
+  if (!rateLimit(`reset:${ip}`, 8, 60_000)) {
+    return { ok: false, error: "Too many attempts. Try again shortly." };
+  }
+
+  const parsed = resetPasswordSchema.safeParse({
+    token: formData.get("token"),
+    newPassword: formData.get("newPassword"),
+    confirmPassword: formData.get("confirmPassword"),
+  });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  const result = await consumePasswordReset({
+    token: parsed.data.token,
+    newPassword: parsed.data.newPassword,
+  });
+  if (!result.ok) {
+    await writeAudit("user.password_reset_failed", { ip });
+    return { ok: false, error: result.error };
+  }
+
+  await writeAudit("user.password_reset", { ip });
+  return { ok: true, message: "Password updated. You can log in with your new password." };
+}
+
 export async function submitKycAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const parsed = kycSchema.safeParse({
@@ -185,6 +307,7 @@ export async function submitKycAction(formData: FormData): Promise<ActionResult>
     mode: check.mode,
   });
 
+  revalidateTradeViews();
   return { ok: true, message: check.message };
 }
 
@@ -222,22 +345,8 @@ export async function createCryptoSellAction(formData: FormData): Promise<Action
     return { ok: false, error: `Maximum is ${rate.maxAmount} ${rate.symbol}.` };
   }
 
-  // Price from live NGN market at order time (not stale seed)
-  let sellRateNgn = rate.sellRateNgn;
-  try {
-    const market = await fetchNgnMarket();
-    const desk = deskQuotesFromMarket(market);
-    const live = desk[parsed.data.symbol as "USDT" | "BTC" | "ETH"];
-    if (live) {
-      sellRateNgn = live.sell;
-      await prisma.rate.update({
-        where: { id: rate.id },
-        data: { sellRateNgn: live.sell, buyRateNgn: live.buy },
-      });
-    }
-  } catch {
-    // keep DB rate if market feed fails
-  }
+  // Desk rate from admin DB (authoritative). Live market no longer overwrites these.
+  const sellRateNgn = rate.sellRateNgn;
 
   const wallet = await prisma.platformWallet.findUnique({
     where: { symbol: parsed.data.symbol },
@@ -247,24 +356,36 @@ export async function createCryptoSellAction(formData: FormData): Promise<Action
   }
 
   const amountNgn = parsed.data.amountCrypto * sellRateNgn;
-  const order = await prisma.cryptoOrder.create({
-    data: {
-      reference: orderReference("NXC"),
-      userId: user.id,
-      symbol: parsed.data.symbol,
-      network: wallet.network,
-      side: "SELL",
-      amountCrypto: parsed.data.amountCrypto,
-      rateNgn: sellRateNgn,
-      amountNgn,
-      depositAddress: wallet.address,
-      txHash: parsed.data.txHash,
-      bankName: kyc.bankName,
-      accountNumber: kyc.accountNumber,
-      accountName: kyc.accountName,
-      status: parsed.data.txHash ? "UNDER_REVIEW" : "AWAITING_DEPOSIT",
-    },
-  });
+  let order;
+  try {
+    order = await prisma.$transaction(async (tx) => {
+      const cap = await assertDailyTradeAllowed(
+        { userId: user.id, kind: "crypto-sell", amountNgn },
+        tx,
+      );
+      if (!cap.ok) throw new Error(cap.error);
+      return tx.cryptoOrder.create({
+        data: {
+          reference: orderReference("NXC"),
+          userId: user.id,
+          symbol: parsed.data.symbol,
+          network: wallet.network,
+          side: "SELL",
+          amountCrypto: parsed.data.amountCrypto,
+          rateNgn: sellRateNgn,
+          amountNgn,
+          depositAddress: wallet.address,
+          txHash: parsed.data.txHash,
+          bankName: kyc.bankName,
+          accountNumber: kyc.accountNumber,
+          accountName: kyc.accountName,
+          status: parsed.data.txHash ? "UNDER_REVIEW" : "AWAITING_DEPOSIT",
+        },
+      });
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Could not create order." };
+  }
 
   await writeAudit("crypto.sell_create", {
     userId: user.id,
@@ -279,6 +400,7 @@ export async function createCryptoSellAction(formData: FormData): Promise<Action
     userId: user.id,
   });
 
+  revalidateTradeViews();
   return {
     ok: true,
     message: `Order ${order.reference} created. Send ${parsed.data.amountCrypto} ${order.symbol} (${order.network}) to ${order.depositAddress}, then submit your TX hash from Orders.`,
@@ -320,21 +442,7 @@ export async function createCryptoBuyAction(formData: FormData): Promise<ActionR
     return { ok: false, error: `Maximum is ${rate.maxAmount} ${rate.symbol}.` };
   }
 
-  let buyRateNgn = rate.buyRateNgn;
-  try {
-    const market = await fetchNgnMarket();
-    const desk = deskQuotesFromMarket(market);
-    const live = desk[parsed.data.symbol as "USDT" | "BTC" | "ETH"];
-    if (live) {
-      buyRateNgn = live.buy;
-      await prisma.rate.update({
-        where: { id: rate.id },
-        data: { sellRateNgn: live.sell, buyRateNgn: live.buy },
-      });
-    }
-  } catch {
-    // keep DB rate if market feed fails
-  }
+  const buyRateNgn = rate.buyRateNgn;
 
   const wallet = await prisma.platformWallet.findUnique({
     where: { symbol: parsed.data.symbol },
@@ -345,24 +453,36 @@ export async function createCryptoBuyAction(formData: FormData): Promise<ActionR
 
   const amountNgn = parsed.data.amountCrypto * buyRateNgn;
   const bank = platformBankDetails();
-  const order = await prisma.cryptoOrder.create({
-    data: {
-      reference: orderReference("NXB"),
-      userId: user.id,
-      symbol: parsed.data.symbol,
-      network: wallet.network,
-      side: "BUY",
-      amountCrypto: parsed.data.amountCrypto,
-      rateNgn: buyRateNgn,
-      amountNgn,
-      userReceiveAddress: parsed.data.userReceiveAddress,
-      paymentRef: parsed.data.paymentRef,
-      bankName: bank.bankName,
-      accountNumber: bank.accountNumber,
-      accountName: bank.accountName,
-      status: parsed.data.paymentRef ? "UNDER_REVIEW" : "AWAITING_DEPOSIT",
-    },
-  });
+  let order;
+  try {
+    order = await prisma.$transaction(async (tx) => {
+      const cap = await assertDailyTradeAllowed(
+        { userId: user.id, kind: "crypto-buy", amountNgn },
+        tx,
+      );
+      if (!cap.ok) throw new Error(cap.error);
+      return tx.cryptoOrder.create({
+        data: {
+          reference: orderReference("NXB"),
+          userId: user.id,
+          symbol: parsed.data.symbol,
+          network: wallet.network,
+          side: "BUY",
+          amountCrypto: parsed.data.amountCrypto,
+          rateNgn: buyRateNgn,
+          amountNgn,
+          userReceiveAddress: parsed.data.userReceiveAddress,
+          paymentRef: parsed.data.paymentRef,
+          bankName: bank.bankName,
+          accountNumber: bank.accountNumber,
+          accountName: bank.accountName,
+          status: parsed.data.paymentRef ? "UNDER_REVIEW" : "AWAITING_DEPOSIT",
+        },
+      });
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Could not create order." };
+  }
 
   await writeAudit("crypto.buy_create", {
     userId: user.id,
@@ -377,6 +497,7 @@ export async function createCryptoBuyAction(formData: FormData): Promise<ActionR
     userId: user.id,
   });
 
+  revalidateTradeViews();
   return {
     ok: true,
     message: `Order ${order.reference} created. Pay ${amountNgn.toLocaleString("en-NG", { style: "currency", currency: "NGN" })} to ${bank.accountName} · ${bank.bankName} · ${bank.accountNumber}, then submit your payment reference from Orders. Crypto goes to ${parsed.data.userReceiveAddress}.`,
@@ -405,6 +526,7 @@ export async function submitCryptoTxAction(formData: FormData): Promise<ActionRe
   });
   await writeAudit("crypto.tx_submit", { userId: user.id, meta: { id, txHash: maskSecret(txHash, 6) } });
   void notifyAdmin("crypto.tx_submitted", { orderId: id, userId: user.id });
+  revalidateTradeViews();
   return { ok: true, message: "Transaction hash submitted. Our desk will verify and pay out." };
 }
 
@@ -433,6 +555,7 @@ export async function submitBuyPaymentAction(formData: FormData): Promise<Action
     meta: { id, paymentRef: maskSecret(paymentRef, 4) },
   });
   void notifyAdmin("crypto.payment_submitted", { orderId: id, reference: order.reference, userId: user.id });
+  revalidateTradeViews();
   return { ok: true, message: "Payment reference submitted. Desk will verify and send crypto." };
 }
 
@@ -467,48 +590,84 @@ export async function createGiftCardSellAction(formData: FormData): Promise<Acti
   if (parsed.data.faceValueUsd < rate.minAmount) {
     return { ok: false, error: `Minimum face value is $${rate.minAmount}.` };
   }
+  if (rate.maxAmount && parsed.data.faceValueUsd > rate.maxAmount) {
+    return { ok: false, error: `Maximum face value is $${rate.maxAmount}.` };
+  }
 
   const sealed = encryptSecret(parsed.data.cardCode);
   const amountNgn = parsed.data.faceValueUsd * rate.sellRateNgn;
-
-  const order = await prisma.giftCardOrder.create({
-    data: {
-      reference: orderReference("NXG"),
-      userId: user.id,
-      brand: parsed.data.brand,
-      country: parsed.data.country,
-      faceValueUsd: parsed.data.faceValueUsd,
-      rateNgn: rate.sellRateNgn,
-      amountNgn,
-      cardCodeEncrypted: sealed.ciphertext,
-      cardCodeIv: sealed.iv,
-      bankName: kyc.bankName,
-      accountNumber: kyc.accountNumber,
-      accountName: kyc.accountName,
-      status: "UNDER_REVIEW",
-    },
+  const risk = await assessGiftCardRisk({
+    userId: user.id,
+    faceValueUsd: parsed.data.faceValueUsd,
+    brand: parsed.data.brand,
   });
+
+  let order;
+  try {
+    order = await prisma.$transaction(async (tx) => {
+      const cap = await assertDailyTradeAllowed(
+        { userId: user.id, kind: "gift-sell", amountNgn },
+        tx,
+      );
+      if (!cap.ok) throw new Error(cap.error);
+      return tx.giftCardOrder.create({
+        data: {
+          reference: orderReference("NXG"),
+          userId: user.id,
+          brand: parsed.data.brand,
+          country: parsed.data.country,
+          faceValueUsd: parsed.data.faceValueUsd,
+          rateNgn: rate.sellRateNgn,
+          amountNgn,
+          cardCodeEncrypted: sealed.ciphertext,
+          cardCodeIv: sealed.iv,
+          bankName: kyc.bankName,
+          accountNumber: kyc.accountNumber,
+          accountName: kyc.accountName,
+          status: "UNDER_REVIEW",
+          fraudFlag: risk.fraudFlag,
+          fraudNote: risk.fraudNote,
+        },
+      });
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Could not create order." };
+  }
 
   await writeAudit("gift.sell_create", {
     userId: user.id,
     ip,
-    meta: { reference: order.reference, brand: order.brand },
+    meta: {
+      reference: order.reference,
+      brand: order.brand,
+      fraudFlag: risk.fraudFlag,
+      fraudNote: risk.fraudNote,
+    },
   });
   void notifyAdmin("gift.sell_created", {
     reference: order.reference,
     brand: order.brand,
     amountNgn: order.amountNgn,
     userId: user.id,
+    fraudFlag: risk.fraudFlag,
+    fraudNote: risk.fraudNote,
   });
 
+  revalidateTradeViews();
   return {
     ok: true,
-    message: `Gift card order ${order.reference} is under review. Code stored encrypted.`,
+    message: risk.fraudFlag
+      ? `Gift card order ${order.reference} is under enhanced review.`
+      : `Gift card order ${order.reference} is under review. Code stored encrypted.`,
   };
 }
 
 export async function updateRateAction(formData: FormData): Promise<ActionResult> {
-  await requireAdmin();
+  try {
+    await requireAdmin();
+  } catch {
+    return { ok: false, error: "Admin login required." };
+  }
   const parsed = rateUpdateSchema.safeParse({
     id: formData.get("id"),
     sellRateNgn: formData.get("sellRateNgn"),
@@ -516,7 +675,7 @@ export async function updateRateAction(formData: FormData): Promise<ActionResult
     isActive: formData.get("isActive") === "on" || formData.get("isActive") === "true",
   });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid rate input" };
   }
 
   await prisma.rate.update({
@@ -527,7 +686,64 @@ export async function updateRateAction(formData: FormData): Promise<ActionResult
       isActive: parsed.data.isActive ?? true,
     },
   });
-  return { ok: true, message: "Rate updated." };
+  revalidateTradeViews();
+  return {
+    ok: true,
+    message: `Rate saved: sell ${parsed.data.sellRateNgn} / buy ${parsed.data.buyRateNgn}.`,
+  };
+}
+
+/** One-shot sync that survives CoinGecko HTTP 429. */
+export async function syncLiveCryptoRatesAction(_formData?: FormData): Promise<ActionResult> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { ok: false, error: "Admin login required." };
+  }
+
+  try {
+    const [usdt, btc, eth] = await Promise.all([
+      prisma.rate.findFirst({ where: { kind: "CRYPTO", symbol: "USDT" } }),
+      prisma.rate.findFirst({ where: { kind: "CRYPTO", symbol: "BTC" } }),
+      prisma.rate.findFirst({ where: { kind: "CRYPTO", symbol: "ETH" } }),
+    ]);
+
+    const usdtMid = usdt?.sellRateNgn ?? 1380;
+    // Derive USD hints from current desk so sync still works offline of CG/Binance
+    const btcUsdHint = btc && usdtMid > 0 ? btc.sellRateNgn / usdtMid : undefined;
+    const ethUsdHint = eth && usdtMid > 0 ? eth.sellRateNgn / usdtMid : undefined;
+
+    const benchmark = await fetchReliableDeskBenchmark({
+      ngnMidHint: usdtMid,
+      btcUsdHint,
+      ethUsdHint,
+    });
+    const desk = deskQuotesFromBenchmark(benchmark);
+    await Promise.all(
+      (["USDT", "BTC", "ETH"] as const).map((symbol) =>
+        prisma.rate.updateMany({
+          where: { kind: "CRYPTO", symbol },
+          data: {
+            sellRateNgn: desk[symbol].sell,
+            buyRateNgn: desk[symbol].buy,
+            isActive: true,
+          },
+        }),
+      ),
+    );
+    revalidateTradeViews();
+    return {
+      ok: true,
+      message: `Synced (${benchmark.source}). USDT ${Math.round(desk.USDT.sell)} / ${Math.round(desk.USDT.buy)}. BTC sell ${Math.round(desk.BTC.sell).toLocaleString("en-NG")}.`,
+    };
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : "Could not sync live rates.";
+    // Never surface raw CoinGecko 429 to the admin UI
+    const friendly = /429|busy|rate.?limit/i.test(raw)
+      ? "Live feeds are busy right now. Your saved desk rates were kept - wait a minute or Save rate manually."
+      : raw;
+    return { ok: false, error: friendly };
+  }
 }
 
 export async function updateCryptoOrderAction(formData: FormData): Promise<ActionResult> {
@@ -553,6 +769,12 @@ export async function updateCryptoOrderAction(formData: FormData): Promise<Actio
   let payoutMessage = "";
 
   if (triggerPayout && order.side === "SELL" && paystackConfigured()) {
+    if (order.payoutRef || order.status === "PAYOUT_SENT" || order.status === "COMPLETED") {
+      return {
+        ok: false,
+        error: `Payout already recorded for ${order.reference}${order.payoutRef ? ` (${order.payoutRef})` : ""}. Do not re-trigger.`,
+      };
+    }
     if (!order.accountName || !order.accountNumber || !order.bankName) {
       return { ok: false, error: "Order missing bank details for Paystack payout." };
     }
@@ -597,12 +819,24 @@ export async function updateCryptoOrderAction(formData: FormData): Promise<Actio
     userId: admin.id,
     meta: { id: parsed.data.id, status, payoutRef, triggerPayout },
   });
+  const cryptoUser = await prisma.user.findUnique({
+    where: { id: order.userId },
+    select: { email: true },
+  });
   void notifyAdmin("admin.crypto_updated", {
     id: parsed.data.id,
     reference: order.reference,
     status,
     payoutRef,
   });
+  void notifyOrderStatus({
+    userId: order.userId,
+    email: cryptoUser?.email,
+    reference: order.reference,
+    status,
+    channel: "crypto",
+  });
+  revalidateTradeViews();
   return { ok: true, message: `Crypto order updated.${payoutMessage}` };
 }
 
@@ -629,6 +863,12 @@ export async function updateGiftOrderAction(formData: FormData): Promise<ActionR
   let payoutMessage = "";
 
   if (triggerPayout && paystackConfigured()) {
+    if (order.payoutRef || order.status === "PAYOUT_SENT" || order.status === "COMPLETED") {
+      return {
+        ok: false,
+        error: `Payout already recorded for ${order.reference}${order.payoutRef ? ` (${order.payoutRef})` : ""}. Do not re-trigger.`,
+      };
+    }
     if (!order.accountName || !order.accountNumber || !order.bankName) {
       return { ok: false, error: "Order missing bank details for Paystack payout." };
     }
@@ -673,13 +913,59 @@ export async function updateGiftOrderAction(formData: FormData): Promise<ActionR
     userId: admin.id,
     meta: { id: parsed.data.id, status, payoutRef, triggerPayout },
   });
+  const giftUser = await prisma.user.findUnique({
+    where: { id: order.userId },
+    select: { email: true },
+  });
   void notifyAdmin("admin.gift_updated", {
     id: parsed.data.id,
     reference: order.reference,
     status,
     payoutRef,
   });
+  void notifyOrderStatus({
+    userId: order.userId,
+    email: giftUser?.email,
+    reference: order.reference,
+    status,
+    channel: "gift",
+  });
+  revalidateTradeViews();
   return { ok: true, message: `Gift card order updated.${payoutMessage}` };
+}
+
+/** Admin-only: decrypt gift code on demand. Every reveal is audited. */
+export async function revealGiftCardCodeAction(orderId: string): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  const id = String(orderId ?? "").trim();
+  if (!id) return { ok: false, error: "Missing order id." };
+
+  const order = await prisma.giftCardOrder.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      reference: true,
+      cardCodeEncrypted: true,
+      cardCodeIv: true,
+    },
+  });
+  if (!order) return { ok: false, error: "Order not found." };
+
+  try {
+    const code = decryptSecret(order.cardCodeEncrypted, order.cardCodeIv);
+    await writeAudit("admin.gift_code_reveal", {
+      userId: admin.id,
+      meta: { id: order.id, reference: order.reference, masked: maskSecret(code) },
+    });
+    void notifyAdmin("admin.gift_code_revealed", {
+      id: order.id,
+      reference: order.reference,
+      adminId: admin.id,
+    });
+    return { ok: true, code, message: "Code revealed (audited)." };
+  } catch {
+    return { ok: false, error: "Could not decrypt card code. Check ENCRYPTION_KEY." };
+  }
 }
 
 export async function reviewKycAction(formData: FormData): Promise<ActionResult> {
@@ -703,6 +989,7 @@ export async function reviewKycAction(formData: FormData): Promise<ActionResult>
     userId: admin.id,
     meta: { id, status },
   });
+  revalidateTradeViews();
   return { ok: true, message: `KYC ${status.toLowerCase()}.` };
 }
 
@@ -711,13 +998,15 @@ export async function updateWalletAction(formData: FormData): Promise<ActionResu
   const symbol = String(formData.get("symbol") ?? "");
   const network = String(formData.get("network") ?? "").trim();
   const address = String(formData.get("address") ?? "").trim();
+  const note = String(formData.get("note") ?? "").trim() || null;
   if (!symbol || !network || address.length < 10) {
     return { ok: false, error: "Provide symbol, network, and address." };
   }
   await prisma.platformWallet.upsert({
     where: { symbol },
-    update: { network, address, isActive: true },
-    create: { symbol, network, address },
+    update: { network, address, note, isActive: true },
+    create: { symbol, network, address, note },
   });
+  revalidateTradeViews();
   return { ok: true, message: "Deposit wallet updated." };
 }

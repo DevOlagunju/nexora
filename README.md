@@ -5,7 +5,7 @@ Nigeria-first web + mobile platform to **buy/sell crypto and sell gift cards for
 ## Stack (security-minded)
 
 - **Next.js 16** (App Router) + TypeScript
-- **Prisma 7** + SQLite locally (Postgres via Docker — see `docs/POSTGRES.md`)
+- **Prisma 7** + SQLite locally (Postgres via Docker  -  see `docs/POSTGRES.md`)
 - **bcrypt** password hashing (cost 12)
 - **JWT + server-side session table** in HttpOnly cookies
 - **AES-256-GCM** for gift card codes at rest
@@ -17,7 +17,7 @@ Nigeria-first web + mobile platform to **buy/sell crypto and sell gift cards for
 
 | Flow | Automated | Human desk |
 |------|-----------|------------|
-| Accounts, rates display, order tracking | Yes | — |
+| Accounts, rates display, order tracking | Yes | n/a |
 | KYC review | Queue (+ optional provider) | Approve / reject |
 | Crypto sell | Order + deposit address | Confirm TX, Paystack or manual payout |
 | Crypto buy | Order + platform bank details | Confirm NGN pay-in, send crypto |
@@ -49,6 +49,8 @@ Change those secrets before any production use.
 | `PAYSTACK_SECRET_KEY` | Auto NGN payouts from admin desk |
 | `ADMIN_WEBHOOK_URL` | Slack/Discord alerts on orders/KYC |
 | `KYC_PROVIDER` / `KYC_API_KEY` | Prembly/Dojah-style hook (default: manual) |
+| `RESEND_API_KEY` / `NOTIFY_FROM_EMAIL` | Password reset + order emails |
+| `NEXT_PUBLIC_APP_URL` | Link base in reset emails (e.g. https://nexora.ng) |
 
 ## User path
 
@@ -59,12 +61,16 @@ Change those secrets before any production use.
 
 ## Production checklist
 
+- [ ] Follow **`docs/SHIP.md`** (secrets → Paystack test → Postgres → Expo)
+- [ ] Desk ops playbook: **`docs/OPS.md`**
+- [ ] Staging: `.env.staging.example`
 - [ ] Move to **PostgreSQL** (`docker compose up -d` + `docs/POSTGRES.md`)
 - [ ] Replace `AUTH_SECRET` and `ENCRYPTION_KEY`
-- [ ] Replace demo deposit wallet addresses + `PLATFORM_BANK_*`
+- [ ] Replace demo deposit wallet addresses + `PLATFORM_BANK_*` + WhatsApp support number
 - [ ] Put Redis in front of in-memory rate limits
 - [ ] Wire real KYC provider keys
 - [ ] Fund Paystack balance + enable Transfers
+- [ ] Schedule `GET /api/cron/sync-rates` + `npm run db:backup`
 - [ ] HTTPS only, secure cookies, WAF
 - [ ] Never log raw gift card codes or full BVN/NIN
 
@@ -73,11 +79,11 @@ Change those secrets before any production use.
 Expo app lives in `../nexora-mobile`.
 
 ```bash
-# Terminal 1 — API reachable on LAN
+# Terminal 1  -  API reachable on LAN
 cd "Project Crypto/nexora"
 npm run dev
 
-# Terminal 2 — Expo (sibling folder, not inside nexora)
+# Terminal 2  -  Expo (sibling folder, not inside nexora)
 cd "Project Crypto/nexora-mobile"
 npx expo start
 ```
