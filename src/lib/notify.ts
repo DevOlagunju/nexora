@@ -1,3 +1,5 @@
+import { errorMessage, log } from "@/lib/log";
+
 /** Fire-and-forget admin alerts (Slack/Discord/WhatsApp webhook URL). */
 export async function notifyAdmin(event: string, payload: Record<string, unknown>) {
   const url = process.env.ADMIN_WEBHOOK_URL;
@@ -8,7 +10,7 @@ export async function notifyAdmin(event: string, payload: Record<string, unknown
     at: new Date().toISOString(),
   };
 
-  console.info("[notify]", event, payload);
+  log.info(`notify: ${event}`, payload);
 
   if (!url) return;
 
@@ -17,8 +19,9 @@ export async function notifyAdmin(event: string, payload: Record<string, unknown
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5_000),
     });
   } catch (err) {
-    console.error("[notify] webhook failed", err);
+    log.error("notify: webhook failed", { event, error: errorMessage(err) });
   }
 }

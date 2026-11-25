@@ -1,8 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import { sha256 } from "@/lib/crypto";
-import type { Role } from "@/generated/prisma/client";
+import type { Role, StaffRole } from "@/generated/prisma/enums";
 
 const COOKIE_NAME = "nexora_session";
 const SESSION_DAYS = 7;
@@ -21,6 +22,8 @@ export type SessionUser = {
   fullName: string;
   phone: string;
   role: Role;
+  /** Staff only: decides what they may do on the desk (src/lib/permissions.ts). */
+  staffRole?: StaffRole | null;
 };
 
 async function resolveUserFromToken(token: string): Promise<SessionUser | null> {
@@ -36,6 +39,7 @@ async function resolveUserFromToken(token: string): Promise<SessionUser | null> 
             fullName: true,
             phone: true,
             role: true,
+            staffRole: true,
           },
         },
       },
@@ -62,6 +66,9 @@ export async function createSession(
     name: user.fullName,
   })
     .setProtectedHeader({ alg: "HS256" })
+    // Unique per session. Without it two sign-ins by the same user in the same second
+    // produce the identical token, and the second one fails on the unique token hash.
+    .setJti(randomUUID())
     .setIssuedAt()
     .setExpirationTime(expiresAt)
     .sign(getSecret());

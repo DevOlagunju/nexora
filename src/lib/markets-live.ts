@@ -77,11 +77,8 @@ type MarketsCache = {
 };
 
 declare global {
-  // eslint-disable-next-line no-var
   var __nexoraMarketsCache: MarketsCache | undefined;
-  // eslint-disable-next-line no-var
   var __nexoraMarketsInflight: Promise<MarketRow[]> | undefined;
-  // eslint-disable-next-line no-var
   var __nexoraMarketsMeta: Map<string, MarketRow> | undefined;
 }
 

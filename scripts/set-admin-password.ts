@@ -1,6 +1,8 @@
 import "dotenv/config";
 import bcrypt from "bcryptjs";
-import { prisma } from "../src/lib/db";
+import { createPrismaClient } from "../src/lib/prisma-factory";
+
+const prisma = createPrismaClient();
 
 async function main() {
   const email = (process.env.ADMIN_EMAIL ?? "admin@nexora.ng").toLowerCase();

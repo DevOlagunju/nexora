@@ -4,6 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { formatNgn } from "@/lib/format";
 import { ActionForm } from "@/components/action-form";
+import { PayoutChoice } from "@/components/wallet/payout-choice";
 
 export default async function SellGiftCardPage() {
   const user = await getSessionUser();
@@ -13,6 +14,8 @@ export default async function SellGiftCardPage() {
     where: { kind: "GIFTCARD", isActive: true },
     orderBy: { sortOrder: "asc" },
   });
+  const kyc = await prisma.kycProfile.findUnique({ where: { userId: user.id } });
+  const bankLabel = kyc?.bankName && kyc.accountNumber ? `${kyc.bankName} ••${kyc.accountNumber.slice(-4)}` : null;
 
   return (
     <div className="mx-auto max-w-xl">
@@ -68,6 +71,7 @@ export default async function SellGiftCardPage() {
           Card code
           <input className="input mt-1" name="cardCode" required autoComplete="off" />
         </label>
+        <PayoutChoice bankLabel={bankLabel} />
       </ActionForm>
     </div>
   );

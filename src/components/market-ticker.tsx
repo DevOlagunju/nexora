@@ -57,10 +57,14 @@ export function MarketTicker({ initial }: { initial: MarketRow[] }) {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    // `initial` is fresh from the server render; fetch at once only if it was empty.
+    const first = window.setTimeout(() => void refresh(), initial.length ? 45_000 : 0);
     const id = window.setInterval(() => void refresh(), 45_000);
-    return () => window.clearInterval(id);
-  }, [refresh]);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(id);
+    };
+  }, [refresh, initial.length]);
 
   if (!markets.length) return null;
 

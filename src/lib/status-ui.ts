@@ -1,4 +1,4 @@
-import { STATUS_LABEL } from "@/lib/security";
+import { STATUS_LABEL } from "@/lib/order-status";
 
 export type StatusTone = "pending" | "review" | "success" | "danger" | "muted";
 
@@ -13,14 +13,20 @@ const TONE_BY_STATUS: Record<string, StatusTone> = {
   CANCELLED: "muted",
   UNVERIFIED: "muted",
   PENDING: "review",
+  // Withdrawals
+  PROCESSING: "pending",
+  PAID: "success",
+  FAILED: "danger",
 };
+
+const EXTRA_LABEL: Record<string, string> = { PROCESSING: "Processing", PAID: "Paid", FAILED: "Failed", PENDING: "Pending" };
 
 export function statusTone(status: string): StatusTone {
   return TONE_BY_STATUS[status] ?? "muted";
 }
 
 export function statusLabel(status: string): string {
-  return STATUS_LABEL[status] ?? status.replace(/_/g, " ");
+  return STATUS_LABEL[status] ?? EXTRA_LABEL[status] ?? status.replace(/_/g, " ");
 }
 
 export function statusPillClass(status: string): string {

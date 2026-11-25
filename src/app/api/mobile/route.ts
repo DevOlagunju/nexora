@@ -1,23 +1,90 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getRequestUser, jsonError } from "@/lib/auth";
-import { encryptSecret, orderReference } from "@/lib/crypto";
-import { rateLimit, writeAudit } from "@/lib/security";
-import { cryptoBuySchema, cryptoSellSchema, giftCardSellSchema, kycSchema } from "@/lib/validators";
-import { verifyKycIdentity } from "@/lib/kyc-provider";
-import { notifyAdmin } from "@/lib/notify";
+import { ipFromHeaders } from "@/lib/security";
 import { platformBankDetails } from "@/lib/platform-bank";
 import { supportWhatsAppDigits } from "@/lib/support";
-import { assertDailyTradeAllowed, assessGiftCardRisk } from "@/lib/trade-limits";
+import { toResponse } from "@/lib/services/result";
+import { lookupBankAccount, submitKyc } from "@/lib/services/kyc";
+import { listBanks } from "@/lib/banks";
+import {
+  cancelUnfundedOrder,
+  createCryptoBuyOrder,
+  createCryptoSellOrder,
+  createGiftCardSellOrder,
+  submitBuyPaymentRef,
+  submitCryptoTxHash,
+} from "@/lib/services/trades";
+import {
+  cancelWithdrawal,
+  getReferralOverview,
+  getWalletOverview,
+  requestWithdrawal,
+  setTransactionPin,
+} from "@/lib/services/wallet";
+import {
+  listNotifications,
+  markNotificationsRead,
+  unreadNotificationCount,
+} from "@/lib/services/notifications";
+import { createRateAlert, deleteRateAlert, listRateAlerts } from "@/lib/services/rate-alerts";
+import { getDeskSpeed } from "@/lib/desk-stats";
+import { paymentStatusFor, startBuyOrderCheckout, startWalletFunding } from "@/lib/services/payments";
+import { activeGatewayName } from "@/lib/payments/gateway";
+import { paymentConfig } from "@/lib/payment-rules";
+import { publicOrigin } from "@/lib/origin";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Mobile app data + actions (bearer token auth).
+ * GET  -> dashboard payload; ?view=wallet | notifications | referrals | alerts | banks for those screens,
+ *         ?view=payment&reference=NXF-... for a gateway payment's status (nudges verification while pending)
+ * POST -> { action: kyc | sell-crypto | buy-crypto | sell-giftcard | crypto-tx | buy-payment | cancel-order
+ *                  | withdraw | cancel-withdrawal | set-pin | read-notifications | create-alert | delete-alert | resolve-account
+ *                  | fund-wallet | pay-order, ... }
+ * Gateway actions (fund-wallet, pay-order, buy-crypto with payFrom CARD) return a `checkout`
+ * { reference, authorizationUrl }: open it in a browser, then poll ?view=payment.
+ */
 
 export async function GET(request: Request) {
   const user = await getRequestUser(request);
   if (!user) return jsonError("Unauthorized", 401);
 
-  const [kyc, cryptoOrders, giftOrders, rates, wallets] = await Promise.all([
-    prisma.kycProfile.findUnique({ where: { userId: user.id } }),
+  const view = new URL(request.url).searchParams.get("view");
+  if (view === "wallet") {
+    const cfg = paymentConfig();
+    return NextResponse.json({
+      ...(await getWalletOverview(user.id)),
+      funding: { provider: activeGatewayName(), minNgn: cfg.minFundingNgn, maxNgn: cfg.maxFundingNgn },
+    });
+  }
+  if (view === "payment") {
+    const reference = new URL(request.url).searchParams.get("reference") ?? "";
+    return toResponse(await paymentStatusFor(user, reference.slice(0, 80)), (payment) => ({ ok: true, payment }));
+  }
+  if (view === "notifications") {
+    return NextResponse.json({ items: await listNotifications(user.id, 50) });
+  }
+  if (view === "referrals") return NextResponse.json(await getReferralOverview(user.id));
+  if (view === "alerts") return NextResponse.json({ items: await listRateAlerts(user.id) });
+  if (view === "banks") return NextResponse.json(await listBanks());
+
+  const [kyc, cryptoOrders, giftOrders, rates, wallets, me, unread, deskSpeed] = await Promise.all([
+    prisma.kycProfile.findUnique({
+      where: { userId: user.id },
+      select: {
+        status: true,
+        bvnLast4: true,
+        ninLast4: true,
+        bankName: true,
+        accountNumber: true,
+        accountName: true,
+        reviewNote: true,
+        submittedAt: true,
+        reviewedAt: true,
+      },
+    }),
     prisma.cryptoOrder.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
@@ -36,12 +103,24 @@ export async function GET(request: Request) {
         rateNgn: true,
         amountNgn: true,
         status: true,
+        adminNote: true,
         createdAt: true,
         completedAt: true,
+        payoutMethod: true,
+        payoutRef: true,
       },
     }),
     prisma.rate.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
-    prisma.platformWallet.findMany({ where: { isActive: true } }),
+    prisma.platformWallet.findMany({
+      where: { isActive: true },
+      select: { symbol: true, network: true, address: true, note: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: user.id },
+      select: { walletBalanceNgn: true, transactionPinHash: true, referralCode: true },
+    }),
+    unreadNotificationCount(user.id),
+    getDeskSpeed(7),
   ]);
 
   return NextResponse.json({
@@ -53,6 +132,12 @@ export async function GET(request: Request) {
     wallets,
     platformBank: platformBankDetails(),
     supportWhatsApp: supportWhatsAppDigits() || null,
+    wallet: { balanceNgn: Math.max(0, me?.walletBalanceNgn ?? 0), hasPin: !!me?.transactionPinHash },
+    referralCode: me?.referralCode ?? null,
+    unreadNotifications: unread,
+    deskSpeed,
+    // "paystack" | "test" | null: whether card / instant-transfer checkout is available.
+    instantPay: activeGatewayName(),
   });
 }
 
@@ -61,311 +146,95 @@ export async function POST(request: Request) {
   if (!user) return jsonError("Unauthorized", 401);
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-  const action = String(body?.action ?? "");
-  const ip =
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    "unknown";
-
-  if (action === "kyc") {
-    const parsed = kycSchema.safeParse(body);
-    if (!parsed.success) return jsonError(parsed.error.issues[0]?.message ?? "Invalid input");
-    const { bvn, nin, bankName, accountNumber, accountName } = parsed.data;
-    const check = await verifyKycIdentity({ bvn, nin, bankName, accountNumber, accountName });
-    await prisma.kycProfile.upsert({
-      where: { userId: user.id },
-      update: {
-        bvnLast4: bvn.slice(-4),
-        ninLast4: nin.slice(-4),
-        bankName,
-        accountNumber,
-        accountName,
-        status: check.status,
-        submittedAt: new Date(),
-        reviewNote: check.mode === "provider" ? check.message : null,
-        reviewedAt:
-          check.status === "APPROVED" || check.status === "REJECTED" ? new Date() : null,
-      },
-      create: {
-        userId: user.id,
-        bvnLast4: bvn.slice(-4),
-        ninLast4: nin.slice(-4),
-        bankName,
-        accountNumber,
-        accountName,
-        status: check.status,
-        submittedAt: new Date(),
-        reviewNote: check.mode === "provider" ? check.message : null,
-        reviewedAt:
-          check.status === "APPROVED" || check.status === "REJECTED" ? new Date() : null,
-      },
-    });
-    await writeAudit("kyc.submit", { userId: user.id, ip, meta: { mode: check.mode } });
-    void notifyAdmin("kyc.submitted", { userId: user.id, email: user.email, status: check.status });
-    return NextResponse.json({ ok: true, message: check.message });
+  if (!body || typeof body !== "object") return jsonError("Invalid JSON body.");
+  const ctx = { ip: ipFromHeaders(request.headers), origin: publicOrigin(request.headers) };
+  // App builds released before the wallet existed don't send payoutMethod: keep paying them to the bank.
+  if ((body.action === "sell-crypto" || body.action === "sell-giftcard") && body.payoutMethod === undefined) {
+    body.payoutMethod = "BANK";
   }
+  const done = (_d: unknown, message?: string) => ({ ok: true, message });
 
-  if (action === "sell-crypto") {
-    if (!rateLimit(`m-crypto:${user.id}`, 15, 60_000)) {
-      return jsonError("Too many orders. Slow down.", 429);
-    }
-    const kyc = await prisma.kycProfile.findUnique({ where: { userId: user.id } });
-    if (!kyc || kyc.status !== "APPROVED") {
-      return jsonError("Complete and get KYC approved before trading.");
-    }
-    const parsed = cryptoSellSchema.safeParse(body);
-    if (!parsed.success) return jsonError(parsed.error.issues[0]?.message ?? "Invalid input");
+  switch (String(body.action ?? "")) {
+    case "kyc":
+      return toResponse(await submitKyc(user, body, ctx), (_d, message) => ({ ok: true, message }));
 
-    const rate = await prisma.rate.findUnique({
-      where: { kind_symbol: { kind: "CRYPTO", symbol: parsed.data.symbol } },
-    });
-    if (!rate?.isActive) return jsonError("Asset unavailable.");
-    if (parsed.data.amountCrypto < rate.minAmount) {
-      return jsonError(`Minimum is ${rate.minAmount} ${rate.symbol}.`);
-    }
-    if (rate.maxAmount && parsed.data.amountCrypto > rate.maxAmount) {
-      return jsonError(`Maximum is ${rate.maxAmount} ${rate.symbol}.`);
+    case "sell-crypto":
+      return toResponse(await createCryptoSellOrder(user, body, ctx), (order, message) => ({
+        ok: true,
+        order,
+        message,
+      }));
+
+    case "buy-crypto": {
+      const created = await createCryptoBuyOrder(user, body, ctx);
+      const checkout =
+        created.ok && body.payFrom === "CARD" ? await startBuyOrderCheckout(user, { orderId: created.data.order.id }, ctx) : null;
+      return toResponse(created, (d, message) => ({
+        ok: true,
+        order: d.order,
+        platformBank: d.platformBank,
+        checkout: checkout?.ok ? checkout.data : undefined,
+        checkoutError: checkout && !checkout.ok ? checkout.error : undefined,
+        message,
+      }));
     }
 
-    const sellRateNgn = rate.sellRateNgn;
+    case "fund-wallet":
+      return toResponse(await startWalletFunding(user, body, ctx), (checkout, message) => ({ ok: true, checkout, message }));
 
-    const wallet = await prisma.platformWallet.findUnique({
-      where: { symbol: parsed.data.symbol },
-    });
-    if (!wallet?.isActive) return jsonError("Deposit wallet unavailable.");
+    case "pay-order":
+      return toResponse(await startBuyOrderCheckout(user, body, ctx), (checkout, message) => ({ ok: true, checkout, message }));
 
-    const amountNgn = parsed.data.amountCrypto * sellRateNgn;
-    let order;
-    try {
-      order = await prisma.$transaction(async (tx) => {
-        const cap = await assertDailyTradeAllowed(
-          { userId: user.id, kind: "crypto-sell", amountNgn },
-          tx,
-        );
-        if (!cap.ok) throw new Error(cap.error);
-        return tx.cryptoOrder.create({
-          data: {
-            reference: orderReference("NXC"),
-            userId: user.id,
-            symbol: parsed.data.symbol,
-            network: wallet.network,
-            side: "SELL",
-            amountCrypto: parsed.data.amountCrypto,
-            rateNgn: sellRateNgn,
-            amountNgn,
-            depositAddress: wallet.address,
-            txHash: parsed.data.txHash,
-            bankName: kyc.bankName,
-            accountNumber: kyc.accountNumber,
-            accountName: kyc.accountName,
-            status: parsed.data.txHash ? "UNDER_REVIEW" : "AWAITING_DEPOSIT",
-          },
-        });
-      });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : "Could not create order.");
-    }
-    await writeAudit("crypto.sell_create", {
-      userId: user.id,
-      ip,
-      meta: { reference: order.reference },
-    });
-    void notifyAdmin("crypto.sell_created", { reference: order.reference, userId: user.id });
-    return NextResponse.json({ ok: true, order });
+    case "sell-giftcard":
+      return toResponse(await createGiftCardSellOrder(user, body, ctx), (order, message) => ({
+        ok: true,
+        order,
+        message,
+      }));
+
+    case "crypto-tx":
+      return toResponse(await submitCryptoTxHash(user, body, ctx), (order, message) => ({
+        ok: true,
+        order,
+        message,
+      }));
+
+    case "buy-payment":
+      return toResponse(await submitBuyPaymentRef(user, body, ctx), (order, message) => ({
+        ok: true,
+        order,
+        message,
+      }));
+
+    case "cancel-order":
+      return toResponse(await cancelUnfundedOrder(user, body, ctx), (order, message) => ({
+        ok: true,
+        order,
+        message,
+      }));
+
+    case "withdraw":
+      return toResponse(await requestWithdrawal(user, body, ctx), (d, message) => ({ ok: true, ...d, message }));
+
+    case "cancel-withdrawal":
+      return toResponse(await cancelWithdrawal(user, body), done);
+
+    case "set-pin":
+      return toResponse(await setTransactionPin(user, body, ctx), done);
+
+    case "read-notifications":
+      return NextResponse.json({ ok: true, marked: await markNotificationsRead(user.id) });
+
+    case "resolve-account":
+      return toResponse(await lookupBankAccount(user, body), (d) => ({ ok: true, ...d }));
+
+    case "create-alert":
+      return toResponse(await createRateAlert(user, body), done);
+
+    case "delete-alert":
+      return toResponse(await deleteRateAlert(user, body), done);
+
+    default:
+      return jsonError("Unknown action.");
   }
-
-  if (action === "buy-crypto") {
-    if (!rateLimit(`m-crypto-buy:${user.id}`, 15, 60_000)) {
-      return jsonError("Too many orders. Slow down.", 429);
-    }
-    const kyc = await prisma.kycProfile.findUnique({ where: { userId: user.id } });
-    if (!kyc || kyc.status !== "APPROVED") {
-      return jsonError("Complete and get KYC approved before trading.");
-    }
-    const parsed = cryptoBuySchema.safeParse(body);
-    if (!parsed.success) return jsonError(parsed.error.issues[0]?.message ?? "Invalid input");
-
-    const rate = await prisma.rate.findUnique({
-      where: { kind_symbol: { kind: "CRYPTO", symbol: parsed.data.symbol } },
-    });
-    if (!rate?.isActive) return jsonError("Asset unavailable.");
-    if (parsed.data.amountCrypto < rate.minAmount) {
-      return jsonError(`Minimum is ${rate.minAmount} ${rate.symbol}.`);
-    }
-    if (rate.maxAmount && parsed.data.amountCrypto > rate.maxAmount) {
-      return jsonError(`Maximum is ${rate.maxAmount} ${rate.symbol}.`);
-    }
-
-    const buyRateNgn = rate.buyRateNgn;
-
-    const wallet = await prisma.platformWallet.findUnique({
-      where: { symbol: parsed.data.symbol },
-    });
-    if (!wallet?.isActive) return jsonError("Asset network unavailable.");
-
-    const amountNgn = parsed.data.amountCrypto * buyRateNgn;
-    const bank = platformBankDetails();
-    let order;
-    try {
-      order = await prisma.$transaction(async (tx) => {
-        const cap = await assertDailyTradeAllowed(
-          { userId: user.id, kind: "crypto-buy", amountNgn },
-          tx,
-        );
-        if (!cap.ok) throw new Error(cap.error);
-        return tx.cryptoOrder.create({
-          data: {
-            reference: orderReference("NXB"),
-            userId: user.id,
-            symbol: parsed.data.symbol,
-            network: wallet.network,
-            side: "BUY",
-            amountCrypto: parsed.data.amountCrypto,
-            rateNgn: buyRateNgn,
-            amountNgn,
-            userReceiveAddress: parsed.data.userReceiveAddress,
-            paymentRef: parsed.data.paymentRef,
-            bankName: bank.bankName,
-            accountNumber: bank.accountNumber,
-            accountName: bank.accountName,
-            status: parsed.data.paymentRef ? "UNDER_REVIEW" : "AWAITING_DEPOSIT",
-          },
-        });
-      });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : "Could not create order.");
-    }
-    await writeAudit("crypto.buy_create", {
-      userId: user.id,
-      ip,
-      meta: { reference: order.reference },
-    });
-    void notifyAdmin("crypto.buy_created", { reference: order.reference, userId: user.id });
-    return NextResponse.json({ ok: true, order, platformBank: bank });
-  }
-
-  if (action === "sell-giftcard") {
-    if (!rateLimit(`m-gift:${user.id}`, 10, 60_000)) {
-      return jsonError("Too many orders. Slow down.", 429);
-    }
-    const kyc = await prisma.kycProfile.findUnique({ where: { userId: user.id } });
-    if (!kyc || kyc.status !== "APPROVED") {
-      return jsonError("Complete and get KYC approved before trading.");
-    }
-    const parsed = giftCardSellSchema.safeParse(body);
-    if (!parsed.success) return jsonError(parsed.error.issues[0]?.message ?? "Invalid input");
-
-    const rate = await prisma.rate.findUnique({
-      where: { kind_symbol: { kind: "GIFTCARD", symbol: parsed.data.brand } },
-    });
-    if (!rate?.isActive) return jsonError("Gift card unavailable.");
-    if (parsed.data.faceValueUsd < rate.minAmount) {
-      return jsonError(`Minimum face value is $${rate.minAmount}.`);
-    }
-    if (rate.maxAmount && parsed.data.faceValueUsd > rate.maxAmount) {
-      return jsonError(`Maximum face value is $${rate.maxAmount}.`);
-    }
-
-    const sealed = encryptSecret(parsed.data.cardCode);
-    const amountNgn = parsed.data.faceValueUsd * rate.sellRateNgn;
-    const risk = await assessGiftCardRisk({
-      userId: user.id,
-      faceValueUsd: parsed.data.faceValueUsd,
-      brand: parsed.data.brand,
-    });
-
-    let order;
-    try {
-      order = await prisma.$transaction(async (tx) => {
-        const cap = await assertDailyTradeAllowed(
-          { userId: user.id, kind: "gift-sell", amountNgn },
-          tx,
-        );
-        if (!cap.ok) throw new Error(cap.error);
-        return tx.giftCardOrder.create({
-          data: {
-            reference: orderReference("NXG"),
-            userId: user.id,
-            brand: parsed.data.brand,
-            country: parsed.data.country,
-            faceValueUsd: parsed.data.faceValueUsd,
-            rateNgn: rate.sellRateNgn,
-            amountNgn,
-            cardCodeEncrypted: sealed.ciphertext,
-            cardCodeIv: sealed.iv,
-            bankName: kyc.bankName,
-            accountNumber: kyc.accountNumber,
-            accountName: kyc.accountName,
-            status: "UNDER_REVIEW",
-            fraudFlag: risk.fraudFlag,
-            fraudNote: risk.fraudNote,
-          },
-        });
-      });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : "Could not create order.");
-    }
-    await writeAudit("gift.sell_create", {
-      userId: user.id,
-      ip,
-      meta: { reference: order.reference, fraudFlag: risk.fraudFlag },
-    });
-    void notifyAdmin("gift.sell_created", {
-      reference: order.reference,
-      userId: user.id,
-      fraudFlag: risk.fraudFlag,
-    });
-    return NextResponse.json({
-      ok: true,
-      order: {
-        id: order.id,
-        reference: order.reference,
-        brand: order.brand,
-        amountNgn: order.amountNgn,
-        status: order.status,
-      },
-    });
-  }
-
-  if (action === "crypto-tx") {
-    const id = String(body?.id ?? "");
-    const txHash = String(body?.txHash ?? "").trim();
-    if (!id || txHash.length < 8) return jsonError("Provide a valid transaction hash.");
-    const order = await prisma.cryptoOrder.findFirst({ where: { id, userId: user.id } });
-    if (!order) return jsonError("Order not found.", 404);
-    if (!["AWAITING_DEPOSIT", "UNDER_REVIEW"].includes(order.status)) {
-      return jsonError("This order can no longer be updated.");
-    }
-    const updated = await prisma.cryptoOrder.update({
-      where: { id },
-      data: { txHash, status: "UNDER_REVIEW" },
-    });
-    void notifyAdmin("crypto.tx_submitted", { orderId: id, userId: user.id });
-    return NextResponse.json({ ok: true, order: updated });
-  }
-
-  if (action === "buy-payment") {
-    const id = String(body?.id ?? "");
-    const paymentRef = String(body?.paymentRef ?? "").trim();
-    if (!id || paymentRef.length < 4) return jsonError("Provide a valid bank payment reference.");
-    const order = await prisma.cryptoOrder.findFirst({
-      where: { id, userId: user.id, side: "BUY" },
-    });
-    if (!order) return jsonError("Order not found.", 404);
-    if (!["AWAITING_DEPOSIT", "UNDER_REVIEW"].includes(order.status)) {
-      return jsonError("This order can no longer be updated.");
-    }
-    const updated = await prisma.cryptoOrder.update({
-      where: { id },
-      data: { paymentRef, status: "UNDER_REVIEW" },
-    });
-    void notifyAdmin("crypto.payment_submitted", {
-      orderId: id,
-      reference: order.reference,
-      userId: user.id,
-    });
-    return NextResponse.json({ ok: true, order: updated });
-  }
-
-  return jsonError("Unknown action.");
 }

@@ -14,16 +14,8 @@ export type BenchmarkQuote = {
 const CACHE_TTL_MS = 90_000;
 
 declare global {
-  // eslint-disable-next-line no-var
   var __nexoraRateBenchmarkCache: { at: number; quote: BenchmarkQuote } | undefined;
-  // Shared with markets-live.ts when that module has loaded
-  // eslint-disable-next-line no-var
-  var __nexoraMarketsCache:
-    | {
-        at: number;
-        rows: Array<{ id: string; price: number | null }>;
-      }
-    | undefined;
+  // __nexoraMarketsCache is declared (and filled) by markets-live.ts
 }
 
 function raceTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -193,14 +185,19 @@ export async function fetchReliableDeskBenchmark(options?: {
     ethUsd: options?.ethUsdHint,
   });
 
-  let mid = ngnHint && ngnHint > 500 && ngnHint < 5000 ? ngnHint : 1380;
+  let mid: number;
   let ngnVia = "desk-usdt";
 
   try {
     mid = await fetchUsdtNgnCoinGecko();
     ngnVia = "coingecko";
   } catch {
-    /* keep desk USDT/NGN mid - do not fail the sync */
+    // Fall back to the desk's own saved USDT rate. Never to a built-in number:
+    // with no feed and no saved rate there is no price to quote.
+    if (!ngnHint || !Number.isFinite(ngnHint) || ngnHint <= 0) {
+      throw new Error("Could not load a USDT/NGN price and no desk rate is saved yet.");
+    }
+    mid = ngnHint;
   }
 
   const quote = buildQuote({

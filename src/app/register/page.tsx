@@ -5,7 +5,9 @@ import { getSessionUser } from "@/lib/auth";
 import { ActionForm } from "@/components/action-form";
 import { SiteHeader } from "@/components/site-chrome";
 
-export default async function RegisterPage() {
+export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ ref?: string }> }) {
+  const { ref } = await searchParams;
+  const referralCode = typeof ref === "string" ? ref.trim().toUpperCase().slice(0, 16) : "";
   const user = await getSessionUser();
   if (user) redirect("/dashboard");
 
@@ -50,6 +52,17 @@ export default async function RegisterPage() {
                   type="password"
                   required
                   autoComplete="new-password"
+                />
+              </label>
+              <label className="mt-4 block text-sm font-medium">
+                Referral code <span className="font-normal text-ink-soft">(optional)</span>
+                <input
+                  className="input mt-1 uppercase"
+                  name="referralCode"
+                  defaultValue={referralCode}
+                  maxLength={16}
+                  autoComplete="off"
+                  placeholder="e.g. NX7K2QPA"
                 />
               </label>
             </ActionForm>

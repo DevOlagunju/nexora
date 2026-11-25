@@ -1,16 +1,19 @@
 import "dotenv/config";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "../src/generated/prisma/client";
 import bcrypt from "bcryptjs";
+import { createPrismaClient } from "../src/lib/prisma-factory";
 
-const adapter = new PrismaBetterSqlite3({
-  url: process.env.DATABASE_URL ?? "file:./dev.db",
-});
-const prisma = new PrismaClient({ adapter });
+// Uses the same Postgres DATABASE_URL the app uses.
+const prisma = createPrismaClient();
 
 async function main() {
   const adminEmail = process.env.ADMIN_EMAIL ?? "admin@nexora.ng";
   const adminPassword = process.env.ADMIN_PASSWORD ?? "ChangeMeAdmin!2026";
+  if (process.env.NODE_ENV === "production" && (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD)) {
+    throw new Error("Set ADMIN_EMAIL and ADMIN_PASSWORD before seeding production.");
+  }
+  if (process.env.NODE_ENV === "production" && (adminPassword.length < 12 || adminPassword === "ChangeMeAdmin!2026")) {
+    throw new Error("ADMIN_PASSWORD must be at least 12 chars and not the example value.");
+  }
   const passwordHash = await bcrypt.hash(adminPassword, 12);
 
   await prisma.user.upsert({
@@ -21,6 +24,8 @@ async function main() {
       phone: "08000000000",
       fullName: "Nexora Admin",
       role: "ADMIN",
+      // The bootstrap admin runs everything; give other staff narrower roles (npm run admin:role).
+      staffRole: "SUPER_ADMIN",
       passwordHash,
       kyc: {
         create: {

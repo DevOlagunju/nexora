@@ -7,6 +7,7 @@
  */
 
 import { prisma } from "@/lib/db";
+import { addNgn, sumNgn } from "@/lib/money";
 
 type OrderDb = Pick<typeof prisma, "cryptoOrder" | "giftCardOrder">;
 
@@ -25,22 +26,25 @@ export function tradeLimitsConfig() {
   };
 }
 
-function startOfUtcDay() {
-  const d = new Date();
+const LAGOS_OFFSET_MS = 60 * 60 * 1000; // WAT = UTC+1, no DST
+
+/** Midnight in Lagos, so daily caps reset when Nigerian customers expect. */
+export function startOfLagosDay(now = new Date()) {
+  const d = new Date(now.getTime() + LAGOS_OFFSET_MS);
   d.setUTCHours(0, 0, 0, 0);
-  return d;
+  return new Date(d.getTime() - LAGOS_OFFSET_MS);
 }
 
 export async function assertDailyTradeAllowed(
   input: {
     userId: string;
-    kind: "crypto-sell" | "crypto-buy" | "gift-sell";
+    kind: TradeKind;
     amountNgn: number;
   },
   db: OrderDb = prisma,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const limits = tradeLimitsConfig();
-  const since = startOfUtcDay();
+  const since = startOfLagosDay();
 
   const [cryptoToday, giftToday] = await Promise.all([
     db.cryptoOrder.findMany({
@@ -61,44 +65,68 @@ export async function assertDailyTradeAllowed(
     }),
   ]);
 
-  const orderCount = cryptoToday.length + giftToday.length;
-  if (orderCount >= limits.dailyOrderCount) {
+  return evaluateDailyCaps({ cryptoToday, giftToday, kind: input.kind, amountNgn: input.amountNgn, limits });
+}
+
+/** Today's usage against each cap - same rules as enforcement, for dashboard meters. */
+export async function getDailyUsage(userId: string, db: OrderDb = prisma) {
+  const limits = tradeLimitsConfig();
+  const since = startOfLagosDay();
+  const where = { userId, createdAt: { gte: since }, status: { notIn: ["CANCELLED", "REJECTED"] as ("CANCELLED" | "REJECTED")[] } };
+  const [cryptoToday, giftToday] = await Promise.all([
+    db.cryptoOrder.findMany({ where, select: { amountNgn: true, side: true } }),
+    db.giftCardOrder.findMany({ where, select: { amountNgn: true } }),
+  ]);
+  const sum = (rows: Array<{ amountNgn: number }>) => sumNgn(rows.map((o) => o.amountNgn));
+  return {
+    cryptoSell: { used: sum(cryptoToday.filter((o) => o.side === "SELL")), cap: limits.dailyCryptoSellNgn },
+    cryptoBuy: { used: sum(cryptoToday.filter((o) => o.side === "BUY")), cap: limits.dailyCryptoBuyNgn },
+    giftSell: { used: sum(giftToday), cap: limits.dailyGiftSellNgn },
+    orders: { used: cryptoToday.length + giftToday.length, cap: limits.dailyOrderCount },
+  };
+}
+
+type TradeKind = "crypto-sell" | "crypto-buy" | "gift-sell";
+
+/** Pure cap check over today's non-failed orders (unit tested). */
+export function evaluateDailyCaps(input: {
+  cryptoToday: Array<{ amountNgn: number; side: "SELL" | "BUY" }>;
+  giftToday: Array<{ amountNgn: number }>;
+  kind: TradeKind;
+  amountNgn: number;
+  limits: ReturnType<typeof tradeLimitsConfig>;
+}): { ok: true } | { ok: false; error: string } {
+  const { cryptoToday, giftToday, limits } = input;
+  const naira = (n: number) => `₦${n.toLocaleString("en-NG")}`;
+
+  if (cryptoToday.length + giftToday.length >= limits.dailyOrderCount) {
     return {
       ok: false,
       error: `Daily order limit reached (${limits.dailyOrderCount}). Contact support if you need a higher desk limit.`,
     };
   }
 
-  if (input.kind === "crypto-sell") {
-    const used = cryptoToday.filter((o) => o.side === "SELL").reduce((s, o) => s + o.amountNgn, 0);
-    if (used + input.amountNgn > limits.dailyCryptoSellNgn) {
-      return {
-        ok: false,
-        error: `Daily crypto sell cap is ₦${limits.dailyCryptoSellNgn.toLocaleString("en-NG")}. Reduce amount or try tomorrow.`,
-      };
-    }
+  const sum = (rows: Array<{ amountNgn: number }>) => sumNgn(rows.map((o) => o.amountNgn));
+  const caps: Record<TradeKind, { used: number; cap: number; label: string }> = {
+    "crypto-sell": {
+      used: sum(cryptoToday.filter((o) => o.side === "SELL")),
+      cap: limits.dailyCryptoSellNgn,
+      label: "crypto sell",
+    },
+    "crypto-buy": {
+      used: sum(cryptoToday.filter((o) => o.side === "BUY")),
+      cap: limits.dailyCryptoBuyNgn,
+      label: "crypto buy",
+    },
+    "gift-sell": { used: sum(giftToday), cap: limits.dailyGiftSellNgn, label: "gift card sell" },
+  };
+  const c = caps[input.kind];
+  if (addNgn(c.used, input.amountNgn) > c.cap) {
+    return {
+      ok: false,
+      error: `Daily ${c.label} cap is ${naira(c.cap)} (used ${naira(Math.round(c.used))} today). Reduce amount or try tomorrow.`,
+    };
   }
-
-  if (input.kind === "crypto-buy") {
-    const used = cryptoToday.filter((o) => o.side === "BUY").reduce((s, o) => s + o.amountNgn, 0);
-    if (used + input.amountNgn > limits.dailyCryptoBuyNgn) {
-      return {
-        ok: false,
-        error: `Daily crypto buy cap is ₦${limits.dailyCryptoBuyNgn.toLocaleString("en-NG")}. Reduce amount or try tomorrow.`,
-      };
-    }
-  }
-
-  if (input.kind === "gift-sell") {
-    const used = giftToday.reduce((s, o) => s + o.amountNgn, 0);
-    if (used + input.amountNgn > limits.dailyGiftSellNgn) {
-      return {
-        ok: false,
-        error: `Daily gift card sell cap is ₦${limits.dailyGiftSellNgn.toLocaleString("en-NG")}. Reduce amount or try tomorrow.`,
-      };
-    }
-  }
-
   return { ok: true };
 }
 
@@ -114,7 +142,7 @@ export async function assessGiftCardRisk(input: {
   brand: string;
 }): Promise<GiftRisk> {
   const limits = tradeLimitsConfig();
-  const since = startOfUtcDay();
+  const since = startOfLagosDay();
   const flags: string[] = [];
 
   if (input.faceValueUsd >= limits.giftFraudFaceUsd) {

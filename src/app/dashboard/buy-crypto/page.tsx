@@ -5,11 +5,14 @@ import { prisma } from "@/lib/db";
 import { formatNgn } from "@/lib/format";
 import { platformBankDetails } from "@/lib/platform-bank";
 import { ActionForm } from "@/components/action-form";
+import { PayFromChoice } from "@/components/wallet/payout-choice";
+import { activeGatewayName } from "@/lib/payments/gateway";
 
 export default async function BuyCryptoPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
 
+  const me = await prisma.user.findUnique({ where: { id: user.id }, select: { walletBalanceNgn: true } });
   const rates = await prisma.rate.findMany({
     where: { kind: "CRYPTO", isActive: true },
     orderBy: { sortOrder: "asc" },
@@ -80,8 +83,9 @@ export default async function BuyCryptoPage() {
         </label>
         <label className="mt-4 block text-sm font-medium">
           Bank payment reference (optional now)
-          <input className="input mt-1" name="paymentRef" placeholder="Paste after paying" />
+          <input className="input mt-1" name="paymentRef" placeholder="Paste after paying (bank transfer only)" />
         </label>
+        <PayFromChoice balance={me?.walletBalanceNgn ?? 0} instant={!!activeGatewayName()} />
       </ActionForm>
     </div>
   );

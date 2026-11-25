@@ -41,7 +41,8 @@ export function UsdtNgnLiveCard({ initial }: { initial: NgnPayload | null }) {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    // Fetch at once only when the server could not supply a quote.
+    const first = window.setTimeout(() => void refresh(), initial ? 30_000 : 0);
     const id = window.setInterval(() => {
       void refresh();
     }, 30_000);
@@ -50,10 +51,11 @@ export function UsdtNgnLiveCard({ initial }: { initial: NgnPayload | null }) {
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
+      window.clearTimeout(first);
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refresh]);
+  }, [refresh, initial]);
 
   if (!data) {
     return (
@@ -87,14 +89,14 @@ export function UsdtNgnLiveCard({ initial }: { initial: NgnPayload | null }) {
 
       <div className="grid gap-4 p-4 md:grid-cols-2">
         <div className={`rounded-xl bg-emerald-50 p-4 ${flash ? "rate-flash" : ""}`}>
-          <p className="text-xs uppercase tracking-wide text-accent-deep">Sell rate (you get)</p>
+          <p className="text-xs uppercase tracking-wide text-accent-deep">Live market sell</p>
           <p className="mt-1 font-[family-name:var(--font-display)] text-3xl font-bold tabular-nums text-accent-deep">
             {formatNgn(desk.USDT.sell)}
           </p>
-          <p className="mt-1 text-xs text-ink-soft">USDT / NGN</p>
+          <p className="mt-1 text-xs text-ink-soft">USDT / NGN reference. Your order uses the desk rate shown when you trade.</p>
         </div>
         <div className="rounded-xl bg-amber-50 p-4">
-          <p className="text-xs uppercase tracking-wide text-amber-800">Buy rate (you pay)</p>
+          <p className="text-xs uppercase tracking-wide text-amber-800">Live market buy</p>
           <p className="mt-1 font-[family-name:var(--font-display)] text-3xl font-bold tabular-nums text-amber-900">
             {formatNgn(desk.USDT.buy)}
           </p>

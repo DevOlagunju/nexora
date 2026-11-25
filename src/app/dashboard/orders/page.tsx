@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { submitBuyPaymentAction, submitCryptoTxAction } from "@/app/actions";
+import { cancelCryptoOrderAction, payBuyOrderAction, submitBuyPaymentAction, submitCryptoTxAction } from "@/app/actions";
+import { activeGatewayName } from "@/lib/payments/gateway";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { formatNgn } from "@/lib/format";
@@ -23,6 +24,9 @@ export default async function OrdersPage() {
     }),
   ]);
 
+  const instantPay = !!activeGatewayName();
+  const walletPaid = (ref: string | null) => !!ref && ref.startsWith("wallet:");
+
   return (
     <>
       <p className="section-label">Orders</p>
@@ -34,7 +38,7 @@ export default async function OrdersPage() {
         <div className="mt-3 space-y-4">
           {cryptoOrders.length === 0 && <p className="text-sm text-ink-soft">No crypto orders yet.</p>}
           {cryptoOrders.map((o) => (
-            <article key={o.id} className="panel text-sm">
+            <article key={o.id} id={`order-${o.id}`} className="panel order-anchor text-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold">
@@ -62,7 +66,7 @@ export default async function OrdersPage() {
                   <p className="max-w-xs break-all text-xs text-ink-soft">
                     Receive: {o.userReceiveAddress}
                     <br />
-                    Pay: {o.bankName} {o.accountNumber}
+                    {walletPaid(o.paymentRef) ? "Paid · confirmed instantly" : `Pay: ${o.bankName} ${o.accountNumber}`}
                   </p>
                 )}
               </div>
@@ -75,7 +79,18 @@ export default async function OrdersPage() {
                   </label>
                 </ActionForm>
               )}
-              {o.side === "BUY" && ["AWAITING_DEPOSIT", "UNDER_REVIEW"].includes(o.status) && (
+              {o.side === "BUY" && o.status === "AWAITING_DEPOSIT" && instantPay && (
+                <ActionForm
+                  action={payBuyOrderAction}
+                  className="mt-4 border-t border-[var(--line)] pt-4"
+                  submitLabel={`Pay ${formatNgn(o.amountNgn)} now · card or transfer`}
+                  resetOnSuccess={false}
+                >
+                  <input type="hidden" name="id" value={o.id} />
+                  <p className="text-xs text-ink-soft">Confirmed instantly. Or pay by manual transfer below.</p>
+                </ActionForm>
+              )}
+              {o.side === "BUY" && ["AWAITING_DEPOSIT", "UNDER_REVIEW"].includes(o.status) && !walletPaid(o.paymentRef) && (
                 <ActionForm action={submitBuyPaymentAction} className="mt-4 border-t border-[var(--line)] pt-4">
                   <input type="hidden" name="id" value={o.id} />
                   <label className="block text-sm font-medium">
@@ -87,6 +102,16 @@ export default async function OrdersPage() {
                       required
                     />
                   </label>
+                </ActionForm>
+              )}
+              {o.status === "AWAITING_DEPOSIT" && (
+                <ActionForm
+                  action={cancelCryptoOrderAction}
+                  className="mt-2"
+                  submitLabel="Cancel order (not yet funded)"
+                  submitVariant="ghost"
+                >
+                  <input type="hidden" name="id" value={o.id} />
                 </ActionForm>
               )}
               {isFailedOrderStatus(o.status) && (
@@ -102,7 +127,7 @@ export default async function OrdersPage() {
         <div className="mt-3 space-y-4">
           {giftOrders.length === 0 && <p className="text-sm text-ink-soft">No gift card orders yet.</p>}
           {giftOrders.map((o) => (
-            <article key={o.id} className="panel text-sm">
+            <article key={o.id} id={`order-${o.id}`} className="panel order-anchor text-sm">
               <p className="font-semibold">{o.reference}</p>
               <p className="text-ink-soft">
                 {o.brand} · ${o.faceValueUsd} · {o.country}

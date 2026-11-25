@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { formatNgn } from "@/lib/format";
@@ -9,11 +9,19 @@ import { RateSellLists } from "@/components/rate-sell-lists";
 import { MarketTicker } from "@/components/market-ticker";
 import { Reveal } from "@/components/reveal";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
+import { getDeskSpeed } from "@/lib/desk-stats";
+import { formatDuration } from "@/lib/alert-rules";
+import { walletConfig } from "@/lib/wallet-rules";
+import { supportWhatsAppUrl } from "@/lib/support";
 
 export default async function HomePage() {
   const user = await getSessionUser();
 
-  const [rates, ngnPayload, liveMarkets] = await loadHomeData();
+  const [[rates, ngnPayload, liveMarkets], speed] = await Promise.all([loadHomeData(), getDeskSpeed(7)]);
+  const cfg = walletConfig();
+  const whatsapp = supportWhatsAppUrl("Hi Nexora, I want to trade.");
+  const fastest = [speed.giftMedianMin, speed.cryptoMedianMin].filter((m): m is number => m !== null);
+  const speedLine = fastest.length ? `Median payout last 7 days: ${formatDuration(Math.min(...fastest))}` : null;
 
   const cryptoRates = rates.filter((r) => r.kind === "CRYPTO");
   const giftRates = rates.filter((r) => r.kind === "GIFTCARD");
@@ -51,19 +59,25 @@ export default async function HomePage() {
                 Nexora
               </p>
               <h1 className="animate-rise stagger-1 mt-4 max-w-xl text-2xl font-semibold text-white/90 md:text-3xl">
-                Crypto and gift cards to Naira - verified, fast, Nigeria-first.
+                Sell crypto and gift cards. Get Naira you can actually count on.
               </h1>
               <p className="animate-rise stagger-2 mt-4 max-w-lg text-base text-white/65">
-                Live rates. Encrypted card codes. Bank payouts after confirmation.
+                Your rate is locked the moment you place an order. Naira lands in your wallet as soon as the desk
+                confirms. Withdraw to any Nigerian bank with your PIN.
               </p>
               <div className="animate-rise stagger-3 mt-8 flex flex-wrap gap-3">
                 <Link href={user ? "/dashboard" : "/register"} className="btn btn-primary">
                   {user ? "Open dashboard" : "Create free account"}
                 </Link>
                 <Link href="/rates" className="btn glass text-white">
-                  Check rates
+                  Check today&apos;s rates
                 </Link>
               </div>
+              <ul className="animate-rise stagger-3 mt-6 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/70">
+                <li>✓ Rate locked at order</li>
+                <li>✓ Auto refund if a payout fails</li>
+                {speedLine ? <li>✓ {speedLine}</li> : <li>✓ WhatsApp support</li>}
+              </ul>
             </div>
             <div className="animate-float relative hidden md:block">
               <div className="glass hero-rate-card rounded-[2rem] p-6">
@@ -79,7 +93,7 @@ export default async function HomePage() {
                   </li>
                   <li className="flex justify-between">
                     <span>Payout</span>
-                    <span>NGN bank transfer</span>
+                    <span>Wallet or any NG bank</span>
                   </li>
                 </ul>
               </div>
@@ -130,7 +144,55 @@ export default async function HomePage() {
           </div>
         </section>
 
-        <section id="how" className="border-y border-[var(--line)] bg-paper-deep/70 py-16">
+        <section className="mx-auto max-w-6xl px-4 pt-16" aria-labelledby="why-title">
+          <Reveal>
+            <p className="section-label">Why traders switch</p>
+            <h2 id="why-title" className="mt-3 font-[family-name:var(--font-display)] text-3xl font-bold text-ink">
+              Built around what goes wrong elsewhere
+            </h2>
+            <p className="mt-2 max-w-2xl text-ink-soft">
+              Rates that change after you send. Payouts stuck with no update. Support that disappears. We designed
+              Nexora so none of that is your problem.
+            </p>
+          </Reveal>
+          <ul className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              {
+                t: "Your rate is locked",
+                d: "The Naira amount you see when you place the order is what you get. No re-rating after you send.",
+              },
+              {
+                t: "Naira wallet, instant credit",
+                d: "Approved trades land in your wallet immediately. Withdraw to your bank any time, protected by a 4-digit PIN.",
+              },
+              {
+                t: "Failed payout? Auto refund",
+                d: "If a withdrawal to your bank bounces, the full amount and fee go straight back to your wallet. No chasing support.",
+              },
+              {
+                t: "Rate alerts",
+                d: "Tell us your target rate for USDT, BTC or gift cards. We notify you the moment the desk hits it.",
+              },
+              {
+                t: "Speed you can check",
+                d: speedLine
+                  ? `${speedLine}, from real completed trades. Published, not promised.`
+                  : "We publish our real median payout time from completed trades. Published, not promised.",
+              },
+              {
+                t: `Earn ${formatNgn(cfg.referralBonusNgn)} per friend`,
+                d: "Share your code. When a friend completes their first trades, the bonus drops in your wallet.",
+              },
+            ].map((f) => (
+              <li key={f.t} className="card-panel list-none">
+                <p className="font-semibold text-ink">{f.t}</p>
+                <p className="mt-1.5 text-sm text-ink-soft">{f.d}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section id="how" className="mt-16 border-y border-[var(--line)] bg-paper-deep/70 py-16">
           <div className="mx-auto max-w-6xl px-4">
             <Reveal>
               <p className="section-label">How it works</p>
@@ -146,7 +208,7 @@ export default async function HomePage() {
                 {
                   n: "01",
                   t: "Verify once",
-                  d: "Register, then submit BVN/NIN last-4 + bank for KYC.",
+                  d: "Sign up in a minute, add your BVN, NIN and bank account. Then the desk reviews it.",
                 },
                 {
                   n: "02",
@@ -156,7 +218,7 @@ export default async function HomePage() {
                 {
                   n: "03",
                   t: "Get paid in Naira",
-                  d: "Desk confirms, payouts land in your bank - track in Orders.",
+                  d: "Desk confirms, Naira lands in your wallet or bank. Track every step live.",
                 },
               ].map((step, i) => (
                 <li
@@ -187,12 +249,30 @@ export default async function HomePage() {
                 a: "Nexora is hybrid: accounts, rates, and order tracking are automated; deposits and gift cards are desk-verified before Naira payout.",
               },
               {
+                q: "How fast do I get paid?",
+                a: speedLine
+                  ? `${speedLine}. Wallet payouts are credited the moment the desk approves your trade; withdrawals go out to your bank after that.`
+                  : "Wallet payouts are credited the moment the desk approves your trade. Withdrawals go to your bank after that.",
+              },
+              {
+                q: "What fees do you charge?",
+                a: `Our rate already includes our margin, so there is no trading fee. Withdrawals to your bank cost ${formatNgn(cfg.withdrawalFeeNgn)}, shown before you confirm.`,
+              },
+              {
+                q: "What happens if my payout fails?",
+                a: "If a withdrawal to your bank fails or is reversed, the full amount (including the fee) is returned to your Nexora wallet automatically and you get a notification. Direct-to-bank trade payouts that fail are retried by the desk.",
+              },
+              {
                 q: "Which assets can I sell?",
                 a: "USDT, BTC, ETH, plus Apple, Steam, Amazon, and Google Play gift cards - with admin-managed rates.",
               },
               {
                 q: "How do you protect gift card codes?",
                 a: "Codes are encrypted with AES-256-GCM before storage. Only authorized admin workflows decrypt during verification.",
+              },
+              {
+                q: "Is my BVN safe?",
+                a: "We only keep the last 4 digits of your BVN and NIN. Withdrawals only ever go to the bank account you verified, and every withdrawal needs your PIN.",
               },
             ].map((item) => (
               <details key={item.q} className="faq-item group py-4">
@@ -215,14 +295,18 @@ export default async function HomePage() {
                 Ready to trade with confidence?
               </h2>
               <p className="mt-2 max-w-lg text-white/70">
-                Same secure backend on web and mobile. Start with KYC, then sell or buy.
+                Verify once, then sell or buy in minutes on web or the mobile app.
               </p>
-              <Link
-                href={user ? "/dashboard" : "/register"}
-                className="btn btn-primary mt-6 inline-flex"
-              >
-                {user ? "Go to dashboard" : "Get started"}
-              </Link>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Link href={user ? "/dashboard" : "/register"} className="btn btn-primary inline-flex">
+                  {user ? "Go to dashboard" : "Create free account"}
+                </Link>
+                {whatsapp && (
+                  <a href={whatsapp} target="_blank" rel="noopener noreferrer" className="btn glass inline-flex text-white">
+                    Chat on WhatsApp
+                  </a>
+                )}
+              </div>
             </div>
           </Reveal>
         </section>

@@ -4,12 +4,15 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ActionForm } from "@/components/action-form";
 import { StatusPill } from "@/components/status-pill";
+import { BankAccountField } from "@/components/bank-account-field";
+import { listBanks } from "@/lib/banks";
 
 export default async function KycPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const kyc = await prisma.kycProfile.findUnique({ where: { userId: user.id } });
   const status = kyc?.status ?? "UNVERIFIED";
+  const { banks, live } = await listBanks();
 
   return (
     <div className="mx-auto max-w-xl">
@@ -34,18 +37,7 @@ export default async function KycPage() {
             NIN (11 digits)
             <input className="input mt-1" name="nin" inputMode="numeric" required maxLength={11} />
           </label>
-          <label className="mt-4 block text-sm font-medium">
-            Bank name
-            <input className="input mt-1" name="bankName" required />
-          </label>
-          <label className="mt-4 block text-sm font-medium">
-            Account number
-            <input className="input mt-1" name="accountNumber" inputMode="numeric" required maxLength={10} />
-          </label>
-          <label className="mt-4 block text-sm font-medium">
-            Account name
-            <input className="input mt-1" name="accountName" required />
-          </label>
+          <BankAccountField banks={banks} live={live} />
         </ActionForm>
       )}
 

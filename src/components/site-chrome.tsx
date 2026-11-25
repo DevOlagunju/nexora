@@ -17,9 +17,9 @@ export function SiteHeader({ user }: { user?: SessionUser | null }) {
           <Link href="/rates" className="hover:text-ink">
             Rates
           </Link>
-          <a href="/#how" className="hover:text-ink">
+          <Link href="/#how" className="hover:text-ink">
             How it works
-          </a>
+          </Link>
           {user ? (
             <>
               <Link href="/dashboard" className="hover:text-ink">

@@ -2,13 +2,17 @@ import { redirect } from "next/navigation";
 import {
   changePasswordAction,
   logoutAllSessionsAction,
+  setTransactionPinAction,
 } from "@/app/actions";
 import { getSessionUser } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { ActionForm } from "@/components/action-form";
 
 export default async function SettingsPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+  const me = await prisma.user.findUnique({ where: { id: user.id }, select: { transactionPinHash: true } });
+  const hasPin = !!me?.transactionPinHash;
 
   return (
     <div className="mx-auto max-w-xl">
@@ -62,6 +66,54 @@ export default async function SettingsPage() {
             required
             minLength={10}
           />
+        </label>
+      </ActionForm>
+
+      <ActionForm
+        action={setTransactionPinAction}
+        className="panel mt-6 scroll-mt-24"
+        submitLabel={hasPin ? "Change PIN" : "Set PIN"}
+        resetOnSuccess
+      >
+        <p id="pin" className="text-[15px] font-extrabold tracking-tight text-ink">
+          Transaction PIN{" "}
+          {hasPin && <span className="status-pill status-success ml-2 align-middle">Active</span>}
+        </p>
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          4 digits, needed for every withdrawal. Avoid 1234, 0000 and your birthday. Five wrong tries pause
+          withdrawals for 30 minutes.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <label className="block text-sm font-medium">
+            {hasPin ? "New PIN" : "PIN"}
+            <input
+              className="input pin-input mt-1"
+              name="pin"
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]{4}"
+              maxLength={4}
+              autoComplete="off"
+              required
+            />
+          </label>
+          <label className="block text-sm font-medium">
+            Confirm PIN
+            <input
+              className="input pin-input mt-1"
+              name="confirmPin"
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]{4}"
+              maxLength={4}
+              autoComplete="off"
+              required
+            />
+          </label>
+        </div>
+        <label className="mt-4 block text-sm font-medium">
+          Account password
+          <input className="input mt-1" type="password" name="password" autoComplete="current-password" required />
         </label>
       </ActionForm>
 

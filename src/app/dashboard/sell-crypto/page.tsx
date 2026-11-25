@@ -4,6 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { formatNgn } from "@/lib/format";
 import { ActionForm } from "@/components/action-form";
+import { PayoutChoice } from "@/components/wallet/payout-choice";
 
 export default async function SellCryptoPage() {
   const user = await getSessionUser();
@@ -14,6 +15,9 @@ export default async function SellCryptoPage() {
     orderBy: { sortOrder: "asc" },
   });
   const wallets = await prisma.platformWallet.findMany({ where: { isActive: true } });
+  const kyc = await prisma.kycProfile.findUnique({ where: { userId: user.id } });
+  const bankLabel = kyc?.bankName && kyc.accountNumber ? `${kyc.bankName} ••${kyc.accountNumber.slice(-4)}` : null;
+
 
   return (
     <div className="mx-auto max-w-xl">
@@ -61,6 +65,7 @@ export default async function SellCryptoPage() {
           TX hash (optional now)
           <input className="input mt-1" name="txHash" placeholder="Paste after sending" />
         </label>
+        <PayoutChoice bankLabel={bankLabel} />
       </ActionForm>
 
       <div className="mt-6 space-y-3">
