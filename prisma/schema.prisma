@@ -110,6 +110,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   idempotencyKeys     IdempotencyKey[]
   ledgerAccounts      LedgerAccount[]
+  quotes              Quote[]
 }
 
 /// Makes a retried API request safe: the first response for a key is stored and replayed,
@@ -464,4 +465,36 @@ model LedgerEntry {
 
   @@index([accountId, createdAt])
   @@index([transactionId])
+}
+// ---------------------------------------------------------------- pricing
+
+/// A price promise: this rate for this amount, until `expiresAt`. An order created from a
+/// quote uses the locked rate even if the desk rate has moved since. Used at most once.
+model Quote {
+  id             String    @id @default(cuid())
+  reference      String    @unique
+  userId         String
+  kind           AssetKind
+  side           TradeSide
+  symbol         String
+  /// Crypto quantity, or gift card face value in USD.
+  amount         Decimal   @db.Decimal(36, 18)
+  /// The locked rate, in Naira per unit.
+  rateNgn        Decimal   @db.Decimal(18, 4)
+  feeNgn         Decimal   @default(0) @db.Decimal(18, 2)
+  /// What the customer receives (sell) or pays (buy), fees included.
+  amountNgn      Decimal   @db.Decimal(18, 2)
+  /// Where the rate came from and when it was last set, so a quote can be explained later.
+  rateSource     String    @default("desk")
+  rateUpdatedAt  DateTime
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  /// Reference of the order created from this quote.
+  orderReference String?   @unique
+  createdAt      DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
 }

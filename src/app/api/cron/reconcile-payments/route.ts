@@ -4,6 +4,7 @@ import { reconcilePendingPayments } from "@/lib/services/payments";
 import { reconcileWithdrawalPayouts } from "@/lib/services/wallet";
 import { reconcileOrderPayouts } from "@/lib/services/desk";
 import { purgeIdempotencyKeys } from "@/lib/api/idempotency";
+import { purgeUnusedQuotes } from "@/lib/services/quotes";
 import { checkLedgerIntegrity } from "@/lib/services/ledger";
 import { notifyAdmin } from "@/lib/notify";
 import { log } from "@/lib/log";
@@ -34,6 +35,7 @@ export async function GET(request: Request) {
 
   // Housekeeping: idempotency keys are only useful for a day.
   await purgeIdempotencyKeys();
+  await purgeUnusedQuotes();
 
   // The ledger must reconcile on every run. A finding is never fixed automatically: a person is alerted.
   const ledger = await checkLedgerIntegrity();
