@@ -11,6 +11,7 @@ import { CUSTOMER_EDITABLE } from "@/lib/order-status";
 import type { AssetKind } from "@/generated/prisma/enums";
 import { fail, ok, TOO_MANY, type ServiceResult } from "@/lib/services/result";
 import { debitWallet } from "@/lib/services/wallet";
+import { claimQuote, quoteForOrder, QuoteGoneError } from "@/lib/services/quotes";
 
 /**
  * Customer trade flows shared by web server actions and the mobile JSON API.
@@ -50,6 +51,7 @@ async function loadTradableRate(kind: AssetKind, symbol: string, amount: number,
 function capErrorOr(err: unknown): ServiceResult<never> {
   if (err instanceof DailyCapError) return fail(err.message, 422);
   if (err instanceof InsufficientWalletError) return fail(err.message, 422);
+  if (err instanceof QuoteGoneError) return fail(err.message, 409);
   throw err;
 }
 
@@ -63,7 +65,12 @@ export async function createCryptoSellOrder(
   const kyc = await requireApprovedKyc(user.id);
   if (!kyc) return fail("Complete and get KYC approved before trading.", 403);
 
-  const parsed = cryptoSellSchema.safeParse(input);
+  const quoted = await quoteForOrder(user.id, input, { kind: "CRYPTO", side: "SELL" });
+  if (!quoted.ok) return quoted;
+  const quote = quoted.data;
+
+  // With a quote, the asset and amount are the quote's: the customer accepts it as it stands.
+  const parsed = cryptoSellSchema.safeParse(quote ? { ...(input as object), symbol: quote.symbol, amountCrypto: quote.amount } : input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
   const { symbol, amountCrypto, txHash, payoutMethod } = parsed.data;
 
@@ -74,22 +81,25 @@ export async function createCryptoSellOrder(
   const wallet = await prisma.platformWallet.findUnique({ where: { symbol } });
   if (!wallet?.isActive) return fail("Deposit wallet unavailable. Contact support.", 503);
 
-  // Desk rate from admin DB is authoritative.
-  const amountNgn = mulNgn(amountCrypto, rate.sellRateNgn);
+  // A quote's locked price wins; otherwise the desk rate at this moment is authoritative.
+  const rateNgn = quote?.rateNgn ?? rate.sellRateNgn;
+  const amountNgn = quote?.amountNgn ?? mulNgn(amountCrypto, rate.sellRateNgn);
   let order: CryptoOrder;
   try {
     order = await prisma.$transaction(async (tx) => {
       const cap = await assertDailyTradeAllowed({ userId: user.id, kind: "crypto-sell", amountNgn }, tx);
       if (!cap.ok) throw new DailyCapError(cap.error);
+      const reference = orderReference("NXC");
+      if (quote) await claimQuote(tx, quote.id, user.id, reference);
       return tx.cryptoOrder.create({
         data: {
-          reference: orderReference("NXC"),
+          reference,
           userId: user.id,
           symbol,
           network: wallet.network,
           side: "SELL",
           amountCrypto,
-          rateNgn: rate.sellRateNgn,
+          rateNgn,
           amountNgn,
           depositAddress: wallet.address,
           txHash: txHash || undefined,
@@ -134,7 +144,11 @@ export async function createCryptoBuyOrder(
   const kyc = await requireApprovedKyc(user.id);
   if (!kyc) return fail("Complete and get KYC approved before trading.", 403);
 
-  const parsed = cryptoBuySchema.safeParse(input);
+  const quoted = await quoteForOrder(user.id, input, { kind: "CRYPTO", side: "BUY" });
+  if (!quoted.ok) return quoted;
+  const quote = quoted.data;
+
+  const parsed = cryptoBuySchema.safeParse(quote ? { ...(input as object), symbol: quote.symbol, amountCrypto: quote.amount } : input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
   const { symbol, amountCrypto, userReceiveAddress, paymentRef, payFrom } = parsed.data;
 
@@ -145,7 +159,8 @@ export async function createCryptoBuyOrder(
   const wallet = await prisma.platformWallet.findUnique({ where: { symbol } });
   if (!wallet?.isActive) return fail("Asset network unavailable. Contact support.", 503);
 
-  const amountNgn = mulNgn(amountCrypto, rate.buyRateNgn);
+  const rateNgn = quote?.rateNgn ?? rate.buyRateNgn;
+  const amountNgn = quote?.amountNgn ?? mulNgn(amountCrypto, rate.buyRateNgn);
   const bank = platformBankDetails();
   let order: CryptoOrder;
   try {
@@ -153,6 +168,7 @@ export async function createCryptoBuyOrder(
       const cap = await assertDailyTradeAllowed({ userId: user.id, kind: "crypto-buy", amountNgn }, tx);
       if (!cap.ok) throw new DailyCapError(cap.error);
       const reference = orderReference("NXB");
+      if (quote) await claimQuote(tx, quote.id, user.id, reference);
       if (payFrom === "WALLET") {
         const paid = await debitWallet(tx, {
           userId: user.id,
@@ -173,7 +189,7 @@ export async function createCryptoBuyOrder(
           network: wallet.network,
           side: "BUY",
           amountCrypto,
-          rateNgn: rate.buyRateNgn,
+          rateNgn,
           amountNgn,
           userReceiveAddress,
           paymentRef: funded,
@@ -231,7 +247,11 @@ export async function createGiftCardSellOrder(
   const kyc = await requireApprovedKyc(user.id);
   if (!kyc) return fail("Complete and get KYC approved before trading.", 403);
 
-  const parsed = giftCardSellSchema.safeParse(input);
+  const quoted = await quoteForOrder(user.id, input, { kind: "GIFTCARD", side: "SELL" });
+  if (!quoted.ok) return quoted;
+  const quote = quoted.data;
+
+  const parsed = giftCardSellSchema.safeParse(quote ? { ...(input as object), brand: quote.symbol, faceValueUsd: quote.amount } : input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
   const { brand, country, faceValueUsd, cardCode, payoutMethod } = parsed.data;
 
@@ -240,7 +260,8 @@ export async function createGiftCardSellOrder(
   const rate = rateRes.data;
 
   const sealed = encryptSecret(cardCode);
-  const amountNgn = mulNgn(faceValueUsd, rate.sellRateNgn);
+  const rateNgn = quote?.rateNgn ?? rate.sellRateNgn;
+  const amountNgn = quote?.amountNgn ?? mulNgn(faceValueUsd, rate.sellRateNgn);
   const risk = await assessGiftCardRisk({ userId: user.id, faceValueUsd, brand });
 
   let order;
@@ -248,14 +269,16 @@ export async function createGiftCardSellOrder(
     order = await prisma.$transaction(async (tx) => {
       const cap = await assertDailyTradeAllowed({ userId: user.id, kind: "gift-sell", amountNgn }, tx);
       if (!cap.ok) throw new DailyCapError(cap.error);
+      const reference = orderReference("NXG");
+      if (quote) await claimQuote(tx, quote.id, user.id, reference);
       return tx.giftCardOrder.create({
         data: {
-          reference: orderReference("NXG"),
+          reference,
           userId: user.id,
           brand,
           country,
           faceValueUsd,
-          rateNgn: rate.sellRateNgn,
+          rateNgn,
           amountNgn,
           cardCodeEncrypted: sealed.ciphertext,
           cardCodeIv: sealed.iv,

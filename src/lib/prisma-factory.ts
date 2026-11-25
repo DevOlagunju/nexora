@@ -64,6 +64,12 @@ export function createPrismaClient(url = process.env.DATABASE_URL ?? "") {
       rateAlert: {
         targetNgn: { needs: { targetNgn: true }, compute: (r) => n(r.targetNgn) },
       },
+      quote: {
+        amount: { needs: { amount: true }, compute: (r) => n(r.amount) },
+        rateNgn: { needs: { rateNgn: true }, compute: (r) => n(r.rateNgn) },
+        feeNgn: { needs: { feeNgn: true }, compute: (r) => n(r.feeNgn) },
+        amountNgn: { needs: { amountNgn: true }, compute: (r) => n(r.amountNgn) },
+      },
       ledgerAccount: {
         balance: { needs: { balance: true }, compute: (r) => n(r.balance) },
       },

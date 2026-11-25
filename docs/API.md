@@ -72,6 +72,22 @@ Required on: `POST /crypto/orders`, `POST /crypto/orders/:id/checkout`, `POST /g
 | GET | `/rates?kind=CRYPTO\|GIFTCARD` | Desk rates with `updatedAt` |
 | GET | `/giftcards/brands` | Brands and Naira rate per $1 |
 
+**Quotes** (a locked price)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/quotes` | `{ kind: "CRYPTO" \| "GIFTCARD", side: "SELL" \| "BUY", symbol, amount }` → rate, `amountNgn`, `expiresAt`, `secondsLeft` |
+| GET | `/quotes/:id` | Status: `OPEN`, `ACCEPTED` or `EXPIRED` |
+
+To trade at the quoted price, create the order with `quoteId` before it expires. The order
+takes its asset and amount from the quote and uses the locked rate even if the desk rate has
+moved. A quote works once, only for the customer it was made for, and only for the kind of
+trade it was made for; otherwise the order is refused with `409` (expired or used), `404`
+(not yours) or `422` (wrong kind of trade). `amount` is a crypto quantity, or a gift card's
+face value in USD. A quote is refused with `503` when the rate behind it has gone stale.
+
+Orders can still be created without a quote; they are priced at the desk rate of the moment.
+
 **Trading**
 
 | Method | Path | Notes |
@@ -110,8 +126,7 @@ Required on: `POST /crypto/orders`, `POST /crypto/orders/:id/checkout`, `POST /g
 
 ## Not in v1 yet
 
-`/quotes` (locked quotes with expiry), `/support/tickets` and `/admin/*` come with later
-milestones. The admin desk currently works through the web app, with every action checked
+`/support/tickets` and `/admin/*` come with later milestones. The admin desk currently works through the web app, with every action checked
 against the staff member's role (`src/lib/permissions.ts`).
 
 ## Adding a route
