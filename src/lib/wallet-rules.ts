@@ -25,7 +25,8 @@ export function walletConfig(env: Record<string, string | undefined> = process.e
   return {
     minWithdrawalNgn: num(env.WALLET_MIN_WITHDRAWAL_NGN, 1_000, 1),
     maxWithdrawalNgn: num(env.WALLET_MAX_WITHDRAWAL_NGN, 2_000_000, 1),
-    withdrawalFeeNgn: num(env.WALLET_WITHDRAWAL_FEE_NGN, 50),
+    // ₦100 flat, the fee Jeroid publishes for a Naira withdrawal (terms, June 2026).
+    withdrawalFeeNgn: num(env.WALLET_WITHDRAWAL_FEE_NGN, 100),
     referralBonusNgn: num(env.REFERRAL_BONUS_NGN, 1_000),
     referralMinTradeNgn: num(env.REFERRAL_MIN_TRADE_NGN, 20_000),
     pinMaxAttempts: 5,

@@ -193,6 +193,14 @@ model Rate {
   maxAmount   Decimal? @db.Decimal(36, 18)
   isActive    Boolean   @default(true)
   sortOrder   Int       @default(0)
+  /// Crypto: how far below the market mid customers sell to Nexora, in percent. The margin is
+  /// built into the rate (no separate trading fee). Applied when rates are synced from the market.
+  sellSpreadPct Decimal  @default(1) @db.Decimal(6, 3)
+  /// Crypto: how far above the market mid customers buy from Nexora, in percent.
+  buySpreadPct  Decimal  @default(1) @db.Decimal(6, 3)
+  /// Crypto: the market mid (NGN per unit) the desk rates were last synced from, and when.
+  marketRateNgn Decimal? @db.Decimal(18, 4)
+  marketRateAt  DateTime?
   updatedAt   DateTime  @updatedAt
   createdAt   DateTime  @default(now())
 
@@ -222,6 +230,9 @@ model CryptoOrder {
   side               TradeSide
   amountCrypto       Decimal @db.Decimal(36, 18)
   rateNgn            Decimal @db.Decimal(18, 4)
+  /// The market mid at the time of the order (from its quote, else the last sync). Null when unknown.
+  /// What the trade earned: (market - rate) x amount on a sell, (rate - market) x amount on a buy.
+  marketRateNgn      Decimal? @db.Decimal(18, 4)
   amountNgn          Decimal @db.Decimal(18, 2)
   depositAddress     String?
   /// Where we send crypto when user is buying
@@ -268,6 +279,8 @@ model GiftCardOrder {
   accountName        String?
   /// Auto heuristics for desk (high face, burst volume, etc.)
   fraudFlag          Boolean     @default(false)
+  /// What the desk got for the card when it redeemed or resold it, entered on completion. Earnings = this - amountNgn.
+  redeemedNgn        Decimal? @db.Decimal(18, 2)
   fraudNote          String?
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
@@ -489,6 +502,8 @@ model Quote {
   cardType       GiftCardType?
   /// The locked rate, in Naira per unit.
   rateNgn        Decimal   @db.Decimal(18, 4)
+  /// Crypto: the market mid the desk rate was set from when this quote was made (for earnings).
+  marketRateNgn  Decimal?  @db.Decimal(18, 4)
   feeNgn         Decimal   @default(0) @db.Decimal(18, 2)
   /// What the customer receives (sell) or pays (buy), fees included.
   amountNgn      Decimal   @db.Decimal(18, 2)

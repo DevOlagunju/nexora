@@ -26,6 +26,8 @@ export const PERMISSIONS = {
   "withdrawals.process": "Process withdrawals",
   /** Ask the payment provider what happened to a transfer. Moves no money by itself. */
   "payouts.verify": "Verify payouts",
+  /** See what the business earned. */
+  "reports.view": "View earnings",
   /** Give or change staff roles. */
   "staff.manage": "Manage staff",
 } as const;
@@ -56,14 +58,15 @@ const GRANTS: Record<StaffRole, readonly Permission[]> = {
     "giftcards.reveal",
     "withdrawals.process",
     "payouts.verify",
+    "reports.view",
   ],
   // Verifies trades and sets prices. Cannot release Naira.
   TRADING_OFFICER: ["desk.view", "rates.manage", "orders.review", "giftcards.reveal"],
   // Releases Naira. Cannot change prices, addresses or trade decisions.
-  FINANCE_OFFICER: ["desk.view", "orders.payout", "withdrawals.process", "payouts.verify"],
+  FINANCE_OFFICER: ["desk.view", "orders.payout", "withdrawals.process", "payouts.verify", "reports.view"],
   COMPLIANCE_OFFICER: ["desk.view", "kyc.review"],
   CUSTOMER_SUPPORT: ["desk.view"],
-  AUDITOR: ["desk.view"],
+  AUDITOR: ["desk.view", "reports.view"],
 };
 
 export type StaffActor = { role: string; staffRole?: StaffRole | null };

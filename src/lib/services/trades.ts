@@ -106,6 +106,8 @@ export async function createCryptoSellOrder(
           side: "SELL",
           amountCrypto,
           rateNgn,
+          // The market price behind the rate, for the earnings report. The quote's if there is one.
+          marketRateNgn: quote ? quote.marketRateNgn : rate.marketRateNgn,
           amountNgn,
           depositAddress: wallet.depositAddress,
           txHash: txHash || undefined,
@@ -202,6 +204,7 @@ export async function createCryptoBuyOrder(
           side: "BUY",
           amountCrypto,
           rateNgn,
+          marketRateNgn: quote ? quote.marketRateNgn : rate.marketRateNgn,
           amountNgn,
           userReceiveAddress,
           paymentRef: funded,

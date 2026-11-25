@@ -90,6 +90,8 @@ function view(q: QuoteRow, now = new Date()): QuoteView {
 type Priced = {
   rateNgn: number;
   rateUpdatedAt: Date;
+  /** Crypto: the market mid the desk rate came from, when known. */
+  marketRateNgn?: number | null;
   country?: string;
   cardType?: "ECODE" | "PHYSICAL";
 };
@@ -117,7 +119,7 @@ async function priceFor(
   if (!(await assetTradable(symbol, side))) return fail("This asset is not available right now.");
   if (amount < rate.minAmount) return fail(`Minimum is ${rate.minAmount} ${rate.symbol}.`);
   if (rate.maxAmount && amount > rate.maxAmount) return fail(`Maximum is ${rate.maxAmount} ${rate.symbol}.`);
-  return ok({ rateNgn: side === "SELL" ? rate.sellRateNgn : rate.buyRateNgn, rateUpdatedAt: rate.updatedAt });
+  return ok({ rateNgn: side === "SELL" ? rate.sellRateNgn : rate.buyRateNgn, rateUpdatedAt: rate.updatedAt, marketRateNgn: rate.marketRateNgn });
 }
 
 export async function createQuote(user: Actor, input: unknown, ctx: Ctx): Promise<ServiceResult<QuoteView>> {
@@ -129,7 +131,7 @@ export async function createQuote(user: Actor, input: unknown, ctx: Ctx): Promis
 
   const priced = await priceFor(kind, side, symbol, amount, { country: parsed.data.country, cardType: parsed.data.cardType });
   if (!priced.ok) return priced;
-  const { rateNgn, rateUpdatedAt, country, cardType } = priced.data;
+  const { rateNgn, rateUpdatedAt, country, cardType, marketRateNgn } = priced.data;
 
   const cfg = quoteConfig();
   const now = new Date();
@@ -156,6 +158,7 @@ export async function createQuote(user: Actor, input: unknown, ctx: Ctx): Promis
       expiresAt: quoteExpiry(cfg, now),
       country,
       cardType,
+      marketRateNgn: marketRateNgn ?? null,
     },
   });
   await writeAudit("quote.create", {
@@ -179,6 +182,7 @@ export type LockedQuote = {
   amountNgn: number;
   country: string | null;
   cardType: "ECODE" | "PHYSICAL" | null;
+  marketRateNgn: number | null;
 };
 
 const GONE = "This quote has expired or was already used. Get a new quote.";
@@ -211,6 +215,7 @@ export async function quoteForOrder(
     amountNgn: quote.amountNgn,
     country: quote.country,
     cardType: quote.cardType,
+    marketRateNgn: quote.marketRateNgn,
   });
 }
 

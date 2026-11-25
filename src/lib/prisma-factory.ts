@@ -43,13 +43,18 @@ export function createPrismaClient(url = process.env.DATABASE_URL ?? "") {
         buyRateNgn: { needs: { buyRateNgn: true }, compute: (r) => n(r.buyRateNgn) },
         minAmount: { needs: { minAmount: true }, compute: (r) => n(r.minAmount) },
         maxAmount: { needs: { maxAmount: true }, compute: (r) => nOrNull(r.maxAmount) },
+        sellSpreadPct: { needs: { sellSpreadPct: true }, compute: (r) => n(r.sellSpreadPct) },
+        buySpreadPct: { needs: { buySpreadPct: true }, compute: (r) => n(r.buySpreadPct) },
+        marketRateNgn: { needs: { marketRateNgn: true }, compute: (r) => nOrNull(r.marketRateNgn) },
       },
       cryptoOrder: {
+        marketRateNgn: { needs: { marketRateNgn: true }, compute: (r) => nOrNull(r.marketRateNgn) },
         amountCrypto: { needs: { amountCrypto: true }, compute: (r) => n(r.amountCrypto) },
         rateNgn: { needs: { rateNgn: true }, compute: (r) => n(r.rateNgn) },
         amountNgn: { needs: { amountNgn: true }, compute: (r) => n(r.amountNgn) },
       },
       giftCardOrder: {
+        redeemedNgn: { needs: { redeemedNgn: true }, compute: (r) => nOrNull(r.redeemedNgn) },
         faceValueUsd: { needs: { faceValueUsd: true }, compute: (r) => n(r.faceValueUsd) },
         rateNgn: { needs: { rateNgn: true }, compute: (r) => n(r.rateNgn) },
         amountNgn: { needs: { amountNgn: true }, compute: (r) => n(r.amountNgn) },
@@ -65,6 +70,7 @@ export function createPrismaClient(url = process.env.DATABASE_URL ?? "") {
         targetNgn: { needs: { targetNgn: true }, compute: (r) => n(r.targetNgn) },
       },
       quote: {
+        marketRateNgn: { needs: { marketRateNgn: true }, compute: (r) => nOrNull(r.marketRateNgn) },
         amount: { needs: { amount: true }, compute: (r) => n(r.amount) },
         rateNgn: { needs: { rateNgn: true }, compute: (r) => n(r.rateNgn) },
         feeNgn: { needs: { feeNgn: true }, compute: (r) => n(r.feeNgn) },

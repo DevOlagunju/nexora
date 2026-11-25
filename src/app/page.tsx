@@ -13,6 +13,7 @@ import { getDeskSpeed } from "@/lib/desk-stats";
 import { formatDuration } from "@/lib/alert-rules";
 import { walletConfig } from "@/lib/wallet-rules";
 import { supportWhatsAppUrl } from "@/lib/support";
+import { loadDeskPayload } from "@/lib/desk-rates";
 
 export default async function HomePage() {
   const user = await getSessionUser();
@@ -326,35 +327,8 @@ async function loadHomeData() {
   const rates = await ratesPromise;
   const liveMarkets = await marketsPromise;
 
-  let ngnPayload: {
-    market: { usdtNgn: number; btcNgn: number; ethNgn: number; fetchedAt: string };
-    desk: {
-      USDT: { mid: number; sell: number; buy: number };
-      BTC: { mid: number; sell: number; buy: number };
-      ETH: { mid: number; sell: number; buy: number };
-    };
-  } | null = null;
-
-  try {
-    const { fetchRateBenchmark, deskQuotesFromBenchmark } = await import("@/lib/rate-benchmark");
-    const benchmark = await fetchRateBenchmark();
-    const desk = deskQuotesFromBenchmark(benchmark);
-    ngnPayload = {
-      market: {
-        usdtNgn: benchmark.referenceMid,
-        btcNgn: desk.BTC.mid,
-        ethNgn: desk.ETH.mid,
-        fetchedAt: benchmark.fetchedAt,
-      },
-      desk: {
-        USDT: desk.USDT,
-        BTC: desk.BTC,
-        ETH: desk.ETH,
-      },
-    };
-  } catch {
-    ngnPayload = null;
-  }
+  // Market mid next to the real desk rates (never a rate derived from the market).
+  const ngnPayload = (await loadDeskPayload().catch(() => null))?.payload ?? null;
 
   return [rates, ngnPayload, liveMarkets] as const;
 }

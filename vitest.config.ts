@@ -21,6 +21,9 @@ export default defineConfig({
     env: {
       ENCRYPTION_KEY: "a".repeat(64),
       AUTH_SECRET: "test-secret-test-secret-test-secret-1234",
+      // The database tests' balances are worked out with a ₦50 withdrawal fee. Pinned here so
+      // they do not change with the default or a local .env.
+      WALLET_WITHDRAWAL_FEE_NGN: "50",
     },
   },
 });
