@@ -7,6 +7,7 @@ import { platformBankDetails } from "@/lib/platform-bank";
 import { ActionForm } from "@/components/action-form";
 import { PayFromChoice } from "@/components/wallet/payout-choice";
 import { activeGatewayName } from "@/lib/payments/gateway";
+import { listAssetNetworks } from "@/lib/services/assets";
 
 export default async function BuyCryptoPage() {
   const user = await getSessionUser();
@@ -18,6 +19,8 @@ export default async function BuyCryptoPage() {
     orderBy: { sortOrder: "asc" },
   });
   const bank = platformBankDetails();
+  const networks = (await listAssetNetworks({ includeAddresses: false })).filter((n) => n.buy);
+  const networkCodes = [...new Set(networks.map((n) => n.network))];
 
   return (
     <div className="mx-auto max-w-xl">
@@ -72,8 +75,24 @@ export default async function BuyCryptoPage() {
           Amount (crypto)
           <input className="input mt-1" name="amountCrypto" type="number" step="any" required />
         </label>
+        {networkCodes.length > 1 && (
+          <label className="mt-4 block text-sm font-medium">
+            Network
+            <select className="input mt-1" name="network" defaultValue="">
+              <option value="">Default for this asset</option>
+              {networkCodes.map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <p className="mt-2 text-xs text-ink-soft">
+          {networks.map((n) => `${n.symbol}: ${n.network}${n.isDefault ? " (default)" : ""}`).join(" · ")}
+        </p>
         <label className="mt-4 block text-sm font-medium">
-          Your receive wallet address
+          Your receive wallet address (on that network)
           <input
             className="input mt-1"
             name="userReceiveAddress"

@@ -199,6 +199,8 @@ model Rate {
   @@unique([kind, symbol])
 }
 
+/// DEPRECATED: replaced by AssetNetwork (the asset and network registry). Its rows were copied
+/// there; nothing reads or writes this table any more. Kept for one release, then dropped.
 model PlatformWallet {
   id        String   @id @default(cuid())
   symbol    String   @unique
@@ -497,4 +499,58 @@ model Quote {
 
   @@index([userId, createdAt])
   @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------- asset and network registry
+
+/// A blockchain network the desk can receive crypto on or send it out on.
+/// `code` is what customers see and what orders record, e.g. "TRC20", "ERC20", "BEP20", "BTC".
+model BlockchainNetwork {
+  id                   String   @id @default(cuid())
+  code                 String   @unique
+  name                 String
+  /// An address on this network must match this pattern (checked on the server).
+  addressPattern       String
+  /// Plain words for the pattern, shown when an address is rejected.
+  addressHint          String
+  /// Link to a transaction, with "{tx}" where the hash goes.
+  explorerTxUrl        String?
+  /// Confirmations a new asset on this network starts with; each asset can then set its own.
+  defaultConfirmations Int      @default(1)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  assets AssetNetwork[]
+}
+
+/// One crypto asset on one network: where customers send it when they sell, whether the desk
+/// can send it out when they buy, and how many confirmations a deposit needs. The asset's price
+/// stays on Rate; this decides where and how it can move.
+model AssetNetwork {
+  id                 String   @id @default(cuid())
+  /// Matches Rate.symbol for kind CRYPTO.
+  symbol             String
+  networkId          String
+  /// Where customers send this asset when they sell it.
+  depositAddress     String
+  /// Memo / tag the deposit must carry on networks that need one.
+  depositMemo        String?
+  /// Confirmations a deposit needs before the desk treats it as received.
+  confirmations      Int
+  /// Customers may sell (send in) this asset on this network.
+  depositsEnabled    Boolean  @default(true)
+  /// The desk may send this asset out on this network (customer purchases).
+  withdrawalsEnabled Boolean  @default(true)
+  /// The network used when a request does not name one. One per asset.
+  isDefault          Boolean  @default(false)
+  /// Shown to customers next to the deposit address (network rules, warnings).
+  note               String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  network BlockchainNetwork @relation(fields: [networkId], references: [id], onDelete: Restrict)
+
+  @@unique([symbol, networkId])
+  @@index([symbol])
 }

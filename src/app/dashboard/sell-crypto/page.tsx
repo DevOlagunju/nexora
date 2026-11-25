@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { formatNgn } from "@/lib/format";
 import { ActionForm } from "@/components/action-form";
 import { PayoutChoice } from "@/components/wallet/payout-choice";
+import { listAssetNetworks } from "@/lib/services/assets";
 
 export default async function SellCryptoPage() {
   const user = await getSessionUser();
@@ -14,7 +15,8 @@ export default async function SellCryptoPage() {
     where: { kind: "CRYPTO", isActive: true },
     orderBy: { sortOrder: "asc" },
   });
-  const wallets = await prisma.platformWallet.findMany({ where: { isActive: true } });
+  const wallets = (await listAssetNetworks({ includeAddresses: true })).filter((w) => w.sell);
+  const networkCodes = [...new Set(wallets.map((w) => w.network))];
   const kyc = await prisma.kycProfile.findUnique({ where: { userId: user.id } });
   const bankLabel = kyc?.bankName && kyc.accountNumber ? `${kyc.bankName} ••${kyc.accountNumber.slice(-4)}` : null;
 
@@ -57,6 +59,22 @@ export default async function SellCryptoPage() {
             ))}
           </select>
         </label>
+        {networkCodes.length > 1 && (
+          <label className="mt-4 block text-sm font-medium">
+            Network
+            <select className="input mt-1" name="network" defaultValue="">
+              <option value="">Default for this asset</option>
+              {networkCodes.map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-xs font-normal text-ink-soft">
+              Send only on the network your order shows. Each network is listed below.
+            </span>
+          </label>
+        )}
         <label className="mt-4 block text-sm font-medium">
           Amount
           <input className="input mt-1" name="amountCrypto" type="number" step="any" required />
@@ -71,11 +89,14 @@ export default async function SellCryptoPage() {
       <div className="mt-6 space-y-3">
         <p className="font-semibold text-sm">Active deposit wallets</p>
         {wallets.map((w) => (
-          <div key={w.id} className="ops-hint">
+          <div key={`${w.symbol}-${w.network}`} className="ops-hint">
             <p className="font-medium text-ink">
-              {w.symbol} · {w.network}
+              {w.symbol} · {w.networkName}
+              {w.isDefault && <span className="ml-2 text-xs font-normal text-ink-soft">default</span>}
             </p>
-            <code className="mt-1 block break-all text-xs text-ink">{w.address}</code>
+            <code className="mt-1 block break-all text-xs text-ink">{w.depositAddress}</code>
+            {w.depositMemo && <p className="mt-1 text-xs text-ink">Memo: {w.depositMemo}</p>}
+            <p className="mt-1 text-xs text-ink-soft">Credited after {w.confirmations} confirmation{w.confirmations === 1 ? "" : "s"}.</p>
             {w.note && <p className="mt-2 text-xs text-amber-900">{w.note}</p>}
           </div>
         ))}

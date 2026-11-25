@@ -3,7 +3,6 @@ import {
   maxWithdrawable,
   pinProblem,
   quoteWithdrawal,
-  receiveAddressProblem,
   referralEarned,
   walletConfig,
 } from "@/lib/wallet-rules";
@@ -61,27 +60,20 @@ describe("referralEarned", () => {
   });
 });
 
-describe("receiveAddressProblem", () => {
-  it("accepts well-formed addresses per network", () => {
-    expect(receiveAddressProblem("USDT", "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE")).toBeNull();
-    expect(receiveAddressProblem("ETH", "0x52908400098527886E0F7030069857D2E4169EE7")).toBeNull();
-    expect(receiveAddressProblem("BTC", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")).toBeNull();
-    expect(receiveAddressProblem("BTC", "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy")).toBeNull();
+describe("order schemas", () => {
+  it("accept any well-formed asset code: which ones trade is decided by the registry", () => {
+    const r = cryptoBuySchema.safeParse({ symbol: "sol", amountCrypto: 10, userReceiveAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE" });
+    expect(r.success && r.data.symbol).toBe("SOL");
+    expect(r.success && r.data.payFrom).toBe("BANK");
+    expect(r.success && r.data.network).toBeUndefined();
   });
-  it("catches wrong-network pastes", () => {
-    expect(receiveAddressProblem("USDT", "0x52908400098527886E0F7030069857D2E4169EE7")).toMatch(/TRC20/);
-    expect(receiveAddressProblem("ETH", "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE")).toMatch(/Ethereum/);
-    expect(receiveAddressProblem("BTC", "not an address")).not.toBeNull();
+  it("normalise an optional network and treat an empty one as none", () => {
+    expect(cryptoSellSchema.safeParse({ symbol: "USDT", network: "bep20", amountCrypto: 1 }).data?.network).toBe("BEP20");
+    expect(cryptoSellSchema.safeParse({ symbol: "USDT", network: "", amountCrypto: 1 }).data?.network).toBeUndefined();
   });
-  it("is enforced by the buy schema", () => {
-    const bad = cryptoBuySchema.safeParse({ symbol: "USDT", amountCrypto: 10, userReceiveAddress: "0xabc0000000" });
-    expect(bad.success).toBe(false);
-    const good = cryptoBuySchema.safeParse({
-      symbol: "USDT",
-      amountCrypto: 10,
-      userReceiveAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
-    });
-    expect(good.success && good.data.payFrom).toBe("BANK");
+  it("reject codes that are not codes", () => {
+    expect(cryptoSellSchema.safeParse({ symbol: "US DT", amountCrypto: 1 }).success).toBe(false);
+    expect(cryptoSellSchema.safeParse({ symbol: "USDT", network: "TRC 20; DROP", amountCrypto: 1 }).success).toBe(false);
   });
 });
 

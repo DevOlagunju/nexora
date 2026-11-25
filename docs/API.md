@@ -68,7 +68,7 @@ Required on: `POST /crypto/orders`, `POST /crypto/orders/:id/checkout`, `POST /g
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/assets` | Tradable crypto assets and their network |
+| GET | `/assets` | Tradable crypto assets: `network` (the default) and `networks` (each with `sell`, `buy`, `confirmations`) |
 | GET | `/rates?kind=CRYPTO\|GIFTCARD` | Desk rates with `updatedAt` |
 | GET | `/giftcards/brands` | Brands and Naira rate per $1 |
 
@@ -93,7 +93,7 @@ Orders can still be created without a quote; they are priced at the desk rate of
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/crypto/orders` | Mine, newest first (`?limit=`) |
-| POST | `/crypto/orders` | `side: "SELL" \| "BUY"` plus the order fields. Idempotent. |
+| POST | `/crypto/orders` | `side: "SELL" \| "BUY"` plus the order fields, and optionally `network` (e.g. `"BEP20"`; default network if omitted). A buy's `userReceiveAddress` must fit that network. Idempotent. |
 | GET | `/crypto/orders/:id` | |
 | PATCH | `/crypto/orders/:id` | One of `{ txHash }`, `{ paymentRef }`, `{ status: "CANCELLED" }` |
 | POST | `/crypto/orders/:id/checkout` | Card checkout for an unpaid buy order. Idempotent. |
