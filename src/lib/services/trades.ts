@@ -17,6 +17,7 @@ import { addressProblem } from "@/lib/asset-rules";
 import { resolveGiftVariant } from "@/lib/services/giftcards";
 import { customerDepositAddress } from "@/lib/services/deposits";
 import { faceValueProblem } from "@/lib/giftcard-rules";
+import { errorMessage, log } from "@/lib/log";
 
 /**
  * Customer trade flows shared by web server actions and the mobile JSON API.
@@ -89,7 +90,14 @@ export async function createCryptoSellOrder(
   const wallet = placed.data;
   // With a deposit provider, the customer sends to their own address and the deposit is matched
   // automatically. Without one, to the desk's shared address as before.
-  const own = await customerDepositAddress(user.id, symbol, wallet.network);
+  let own: Awaited<ReturnType<typeof customerDepositAddress>>;
+  try {
+    own = await customerDepositAddress(user.id, symbol, wallet.network);
+  } catch (err) {
+    // Never fall back to an address nobody is watching for this customer.
+    log.error("trades: deposit provider failed", { symbol, network: wallet.network.code, error: errorMessage(err) });
+    return fail("We couldn't create your deposit address just now. Please try again in a few minutes.", 503);
+  }
   const depositAddress = own?.address ?? wallet.depositAddress;
   const depositMemo = own ? own.memo : wallet.depositMemo;
 

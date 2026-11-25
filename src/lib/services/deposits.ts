@@ -84,7 +84,14 @@ export async function personaliseWallets<T extends { symbol: string; network: st
   return Promise.all(
     wallets.map(async (w) => {
       const network = byCode.get(w.network);
-      const own = network ? await customerDepositAddress(userId, w.symbol, network) : null;
+      let own: Awaited<ReturnType<typeof customerDepositAddress>> = null;
+      try {
+        own = network ? await customerDepositAddress(userId, w.symbol, network) : null;
+      } catch (err) {
+        // Provider unreachable: show the desk's shared address for now (deposits there are checked by
+        // hand, as before). Placing an order asks again and refuses if it still can't get one.
+        log.warn("deposits: could not get a customer address", { symbol: w.symbol, network: w.network, error: errorMessage(err) });
+      }
       return own ? { ...w, address: own.address, ...("memo" in w ? { memo: own.memo } : {}) } : w;
     }),
   );
@@ -121,7 +128,9 @@ export async function handleDepositWebhook(providerName: string, rawBody: string
     // A forged or tampered webhook is kept for investigation and never acted on.
     if (!signatureOk) continue;
     try {
-      await processDepositEvent(provider.name, event);
+      // A provider that can be asked about the transfer is asked, rather than trusting the webhook alone.
+      const checked = provider.confirmEvent ? await provider.confirmEvent(event) : event;
+      await processDepositEvent(provider.name, checked);
       await prisma.webhookEvent.update({ where: { provider_eventId: { provider: provider.name, eventId: event.eventId } }, data: { processedAt: new Date(), error: null } });
       processed++;
     } catch (err) {
@@ -135,7 +144,7 @@ export async function handleDepositWebhook(providerName: string, rawBody: string
     log.warn("deposits: bad webhook signature", { provider: provider.name });
     return { status: 401, body: { error: "Invalid signature." } };
   }
-  return { status: 200, body: { ok: true, processed, duplicates } };
+  return { status: provider.successStatus ?? 200, body: { ok: true, processed, duplicates } };
 }
 
 /** "new" the first time an event arrives (or when an earlier attempt failed), "seen" once it was processed. */
@@ -166,6 +175,10 @@ export async function processDepositEvent(providerName: string, e: DepositEvent)
     select: { userId: true, symbol: true },
   });
 
+  const needed = await requiredConfirmations(e.symbol, e.network);
+  // A provider that reports "confirmed" instead of a count has applied its own threshold.
+  const confirmations = e.confirmed ? Math.max(e.confirmations, needed) : e.confirmations;
+
   const key = { network_txHash_txIndex: { network: e.network, txHash: e.txHash, txIndex: e.txIndex } };
   const before = await prisma.blockchainDeposit.findUnique({ where: key });
   const deposit = await prisma.blockchainDeposit.upsert({
@@ -179,11 +192,11 @@ export async function processDepositEvent(providerName: string, e: DepositEvent)
       toAddress,
       fromAddress: e.fromAddress ?? null,
       amount: e.amount,
-      confirmations: e.confirmations,
+      confirmations,
       userId: owner?.userId ?? null,
     },
     // Confirmations only go up, unless the transfer left the chain.
-    update: { confirmations: e.dropped ? e.confirmations : Math.max(before?.confirmations ?? 0, e.confirmations) },
+    update: { confirmations: e.dropped ? confirmations : Math.max(before?.confirmations ?? 0, confirmations) },
   });
 
   if (e.dropped) return reverseDeposit(deposit.id);
@@ -194,7 +207,6 @@ export async function processDepositEvent(providerName: string, e: DepositEvent)
     return markException(deposit.id, "WRONG_ASSET", `${e.symbol} arrived at the customer's ${owner.symbol} address on ${e.network}.`);
   }
 
-  const needed = await requiredConfirmations(e.symbol, e.network);
   if (deposit.confirmations < needed) {
     if (!before) {
       void pushNotification(owner.userId, {
