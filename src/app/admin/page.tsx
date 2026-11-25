@@ -5,12 +5,15 @@ import {
   updateCryptoOrderAction,
   updateGiftOrderAction,
   updateRateAction,
-  updateWalletAction,
+  updateAssetNetworkAction,
   processWithdrawalAction,
   verifyOrderPayoutAction,
+  addAssetNetworkAction,
 } from "@/app/actions";
 import { isPayoutLock } from "@/lib/payout-rules";
 import { staffRoleLabel } from "@/lib/permissions";
+import { adminRegistry } from "@/lib/services/assets";
+import { explorerTxLink } from "@/lib/asset-rules";
 import { getSessionUser } from "@/lib/auth";
 import { maskSecret } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
@@ -37,9 +40,9 @@ export default async function AdminPage() {
   if (!user) redirect("/login");
   if (user.role !== "ADMIN") redirect("/dashboard");
 
-  const [rates, wallets, pendingKyc, cryptoOrdersRaw, giftOrdersRaw, withdrawals] = await Promise.all([
+  const [rates, registry, pendingKyc, cryptoOrdersRaw, giftOrdersRaw, withdrawals] = await Promise.all([
     prisma.rate.findMany({ orderBy: { sortOrder: "asc" } }),
-    prisma.platformWallet.findMany({ orderBy: { symbol: "asc" } }),
+    adminRegistry(),
     prisma.kycProfile.findMany({
       where: { status: "PENDING" },
       include: { user: { select: { fullName: true, email: true, phone: true } } },
@@ -68,6 +71,7 @@ export default async function AdminPage() {
   ]);
   const withdrawalTotal = sumNgn(withdrawals.map((w) => w.amountNgn));
   const canPaystack = paystackConfigured();
+  const explorerByNetwork = new Map(registry.networks.map((n) => [n.code, n.explorerTxUrl]));
 
   const cryptoOrders = [...cryptoOrdersRaw].sort(
     (a, b) => priorityIndex(a.status, CRYPTO_PRIORITY) - priorityIndex(b.status, CRYPTO_PRIORITY),
@@ -141,7 +145,7 @@ export default async function AdminPage() {
 
         <nav className="dash-nav mt-8" aria-label="Admin sections">
           <a href="#rates">Rates</a>
-          <a href="#wallets">Wallets</a>
+          <a href="#wallets">Assets &amp; networks</a>
           <a href="#withdrawals">Withdrawals</a>
           <a href="#kyc">KYC</a>
           <a href="#crypto">Crypto</a>
@@ -218,50 +222,118 @@ export default async function AdminPage() {
         </section>
 
         <section id="wallets" className="mt-14 scroll-mt-24">
-          <p className="section-label">Wallets</p>
+          <p className="section-label">Assets and networks</p>
           <h2 className="mt-1 font-[family-name:var(--font-display)] text-2xl font-bold">
-            Deposit wallets
+            Where each asset moves
           </h2>
           <p className="mt-1 text-sm text-ink-soft">
-            Allowlist notes show to customers on sell-crypto - use them for network rules.
+            One card per asset per network. <strong>Sell</strong> lets customers send the asset to the deposit address;{" "}
+            <strong>Buy</strong> lets the desk send it out on that network. The note shows to customers next to the
+            address. Address changes are checked against the network&apos;s format, logged and alerted.
           </p>
           <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {wallets.map((w) => (
+            {registry.assetNetworks.map((a) => (
               <ActionForm
-                key={w.id}
-                action={updateWalletAction}
+                key={a.id}
+                action={updateAssetNetworkAction}
                 className="panel"
                 resetOnSuccess={false}
-                submitLabel="Save wallet"
+                submitLabel="Save"
               >
-                <input type="hidden" name="symbol" value={w.symbol} />
+                <input type="hidden" name="id" value={a.id} />
                 <p className="font-semibold">
-                  {w.symbol}
-                  <span className="ml-2 text-xs font-normal text-ink-soft">{w.network}</span>
+                  {a.symbol}
+                  <span className="ml-2 text-xs font-normal text-ink-soft">
+                    {a.network.name}
+                    {!a.network.isActive && " · network switched off"}
+                  </span>
                 </p>
                 <label className="mt-3 block text-sm">
-                  Network
-                  <input className="input mt-1" name="network" defaultValue={w.network} required />
+                  Deposit address
+                  <input className="input mt-1" name="depositAddress" defaultValue={a.depositAddress} required />
                 </label>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <label className="block text-sm">
+                    Memo / tag
+                    <input className="input mt-1" name="depositMemo" defaultValue={a.depositMemo ?? ""} placeholder="Only if needed" />
+                  </label>
+                  <label className="block text-sm">
+                    Confirmations
+                    <input className="input mt-1" name="confirmations" type="number" min={1} defaultValue={a.confirmations} required />
+                  </label>
+                </div>
                 <label className="mt-3 block text-sm">
-                  Address
-                  <input className="input mt-1" name="address" defaultValue={w.address} required />
+                  Note for customers
+                  <input className="input mt-1" name="note" defaultValue={a.note ?? ""} placeholder={`e.g. ${a.network.code} only`} />
                 </label>
-                <label className="mt-3 block text-sm">
-                  Allowlist / ops note
-                  <input
-                    className="input mt-1"
-                    name="note"
-                    defaultValue={w.note ?? ""}
-                    placeholder="e.g. TRC20 only - verify before confirming"
-                  />
-                </label>
+                <div className="mt-3 flex flex-wrap gap-4 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" name="depositsEnabled" defaultChecked={a.depositsEnabled} /> Sell
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" name="withdrawalsEnabled" defaultChecked={a.withdrawalsEnabled} /> Buy
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" name="isDefault" defaultChecked={a.isDefault} /> Default network
+                  </label>
+                </div>
               </ActionForm>
             ))}
-            {wallets.length === 0 && (
-              <p className="text-sm text-ink-soft">No wallets configured. Seed or add via Prisma.</p>
+            {registry.assetNetworks.length === 0 && (
+              <p className="text-sm text-ink-soft">No asset is on any network yet. Add one below.</p>
             )}
           </div>
+
+          <ActionForm action={addAssetNetworkAction} className="panel mt-6" submitLabel="Add network">
+            <p className="font-semibold">Add an asset on another network</p>
+            <p className="mt-1 text-xs text-ink-soft">
+              It starts switched off. Check custody, liquidity and the address, then enable Sell or Buy.
+            </p>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <label className="block text-sm">
+                Asset
+                <select className="input mt-1" name="symbol" required defaultValue="">
+                  <option value="" disabled>
+                    Pick
+                  </option>
+                  {registry.cryptoRates.map((r) => (
+                    <option key={r.symbol} value={r.symbol}>
+                      {r.symbol} · {r.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm">
+                Network
+                <select className="input mt-1" name="networkId" required defaultValue="">
+                  <option value="" disabled>
+                    Pick
+                  </option>
+                  {registry.networks
+                    .filter((n) => n.isActive)
+                    .map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {n.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="block text-sm">
+                Deposit address
+                <input className="input mt-1" name="depositAddress" required />
+              </label>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <label className="block text-sm">
+                Memo / tag
+                <input className="input mt-1" name="depositMemo" placeholder="Only if the network needs one" />
+              </label>
+              <label className="block text-sm">
+                Note for customers
+                <input className="input mt-1" name="note" />
+              </label>
+            </div>
+          </ActionForm>
         </section>
 
         <section id="withdrawals" className="mt-14 scroll-mt-24">
@@ -447,7 +519,18 @@ export default async function AdminPage() {
 
                 {o.side === "SELL" ? (
                   <div className="ops-hint mt-4 break-all">
-                    TX: {o.txHash ? maskSecret(o.txHash, 8) : "N/A"}
+                    TX ({o.network}): {o.txHash ? maskSecret(o.txHash, 8) : "N/A"}
+                    {(() => {
+                      const link = explorerTxLink(explorerByNetwork.get(o.network), o.txHash);
+                      return link ? (
+                        <>
+                          {" "}
+                          <a className="underline" href={link} target="_blank" rel="noopener noreferrer">
+                            Check on explorer
+                          </a>
+                        </>
+                      ) : null;
+                    })()}
                     <br />
                     {o.payoutMethod === "WALLET"
                       ? "Payout: Nexora wallet (credited when you set Completed)"

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { receiveAddressProblem } from "@/lib/wallet-rules";
 
 /** Sell proceeds: Nexora wallet (default, withdraw any time) or straight to the KYC bank account. */
 const payoutMethod = z.enum(["WALLET", "BANK"]).default("WALLET");
@@ -90,35 +89,54 @@ export const bankLookupSchema = z.object({
   accountNumber: z.string().trim().regex(/^\d{10}$/, "Account number must be 10 digits"),
 });
 
+/**
+ * Asset and brand codes are checked for shape only. Whether one is actually tradable comes
+ * from the database (Rate and the asset/network registry), so admins add or remove assets
+ * without a code change.
+ */
+const code = (label: string) =>
+  z
+    .string({ error: `Pick ${label}.` })
+    .trim()
+    .transform((s) => s.toUpperCase())
+    .pipe(z.string().regex(/^[A-Z0-9]{2,15}$/, `Pick ${label}.`));
+
+/** Optional network code ("TRC20"). Without one, the asset's default network is used. */
+const network = z
+  .string()
+  .trim()
+  .transform((s) => s.toUpperCase())
+  .pipe(z.string().regex(/^[A-Z0-9_-]{2,20}$/, "Pick a network."))
+  .optional()
+  .or(z.literal("").transform(() => undefined));
+
 export const cryptoSellSchema = z.object({
-  symbol: z.enum(["USDT", "BTC", "ETH"]),
+  symbol: code("an asset"),
+  network,
   amountCrypto: z.coerce.number().positive(),
   txHash: z.string().trim().max(120).optional(),
   payoutMethod,
 });
 
-export const cryptoBuySchema = z
-  .object({
-    symbol: z.enum(["USDT", "BTC", "ETH"]),
-    amountCrypto: z.coerce.number().positive(),
-    userReceiveAddress: z.string().trim().min(10, "Enter your wallet address").max(120),
-    paymentRef: z
-      .string()
-      .trim()
-      .max(120)
-      // "wallet:" is reserved for money Nexora already holds; it drives refunds.
-      .refine((v) => !v.toLowerCase().startsWith("wallet:"), "Enter your bank transfer reference.")
-      .optional(),
-    /** BANK: manual transfer to the desk. WALLET: debit the Nexora wallet now. CARD: gateway checkout, confirmed instantly. */
-    payFrom: z.enum(["BANK", "WALLET", "CARD"]).default("BANK"),
-  })
-  .superRefine((d, ctx) => {
-    const problem = receiveAddressProblem(d.symbol, d.userReceiveAddress);
-    if (problem) ctx.addIssue({ code: "custom", path: ["userReceiveAddress"], message: problem });
-  });
+/** The receive address is checked against the chosen network's format in the trade service. */
+export const cryptoBuySchema = z.object({
+  symbol: code("an asset"),
+  network,
+  amountCrypto: z.coerce.number().positive(),
+  userReceiveAddress: z.string().trim().min(10, "Enter your wallet address").max(128),
+  paymentRef: z
+    .string()
+    .trim()
+    .max(120)
+    // "wallet:" is reserved for money Nexora already holds; it drives refunds.
+    .refine((v) => !v.toLowerCase().startsWith("wallet:"), "Enter your bank transfer reference.")
+    .optional(),
+  /** BANK: manual transfer to the desk. WALLET: debit the Nexora wallet now. CARD: gateway checkout, confirmed instantly. */
+  payFrom: z.enum(["BANK", "WALLET", "CARD"]).default("BANK"),
+});
 
 export const giftCardSellSchema = z.object({
-  brand: z.enum(["APPLE", "STEAM", "AMAZON", "GOOGLE"]),
+  brand: code("a gift card"),
   country: z.string().trim().min(2).max(40).default("USA"),
   faceValueUsd: z.coerce.number().positive(),
   cardCode: z.string().trim().min(6).max(120),

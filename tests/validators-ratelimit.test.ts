@@ -30,9 +30,11 @@ describe("validators", () => {
     expect(kycSchema.safeParse({ ...base, accountNumber: "12345" }).success).toBe(false);
   });
 
-  it("coerces numeric strings from forms and rejects unknown assets", () => {
+  it("coerces numeric strings from forms and checks the shape of asset codes", () => {
     expect(cryptoSellSchema.parse({ symbol: "USDT", amountCrypto: "25" }).amountCrypto).toBe(25);
-    expect(cryptoSellSchema.safeParse({ symbol: "DOGE", amountCrypto: 1 }).success).toBe(false);
+    // Whether DOGE trades is the registry's call (tests/db/assets.test.ts), not a list in the validator.
+    expect(cryptoSellSchema.safeParse({ symbol: "DOGE", amountCrypto: 1 }).success).toBe(true);
+    expect(cryptoSellSchema.safeParse({ symbol: "<script>", amountCrypto: 1 }).success).toBe(false);
     expect(cryptoSellSchema.safeParse({ symbol: "BTC", amountCrypto: -1 }).success).toBe(false);
     expect(giftCardSellSchema.parse({ brand: "APPLE", faceValueUsd: "100", cardCode: "XXXX-YYYY" }).country).toBe(
       "USA",

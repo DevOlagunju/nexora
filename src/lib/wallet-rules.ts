@@ -82,22 +82,5 @@ export function referralEarned(completedSellNgn: number, cfg: WalletConfig) {
   return cfg.referralBonusNgn > 0 && completedSellNgn >= cfg.referralMinTradeNgn;
 }
 
-/**
- * Format check for where we send crypto on BUY orders. Not a checksum validation,
- * but it stops the common "pasted the wrong network" and typo mistakes.
- */
-export function receiveAddressProblem(symbol: string, address: string): string | null {
-  const a = address.trim();
-  if (/\s/.test(a)) return "Wallet address cannot contain spaces.";
-  const rules: Record<string, { re: RegExp; hint: string }> = {
-    USDT: { re: /^T[1-9A-HJ-NP-Za-km-z]{33}$/, hint: "a TRC20 address (starts with T, 34 characters)" },
-    BTC: {
-      re: /^(bc1[02-9ac-hj-np-z]{11,71}|[13][1-9A-HJ-NP-Za-km-z]{25,34})$/,
-      hint: "a Bitcoin address (bc1…, 1… or 3…)",
-    },
-    ETH: { re: /^0x[0-9a-fA-F]{40}$/, hint: "an Ethereum address (0x followed by 40 hex characters)" },
-  };
-  const rule = rules[symbol];
-  if (!rule) return null;
-  return rule.re.test(a) ? null : `That doesn't look like ${rule.hint}.`;
-}
+// Receive-address checks moved to src/lib/asset-rules.ts (addressProblem): the format now
+// comes from the network in the registry, not from a list of assets here.

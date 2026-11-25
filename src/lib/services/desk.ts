@@ -574,36 +574,6 @@ export async function updateRate(
   return ok(null, `${fired ? `${fired} customer alert${fired === 1 ? "" : "s"} sent. ` : ""}Rate saved: sell ${parsed.data.sellRateNgn} / buy ${parsed.data.buyRateNgn}.`);
 }
 
-export async function updateWallet(
-  admin: Admin,
-  input: { symbol?: unknown; network?: unknown; address?: unknown; note?: unknown },
-): Promise<ServiceResult<null>> {
-  const symbol = String(input.symbol ?? "").trim().toUpperCase();
-  const network = String(input.network ?? "").trim();
-  const address = String(input.address ?? "").trim();
-  const note = String(input.note ?? "").trim().slice(0, 200) || null;
-  if (!/^[A-Z0-9]{2,10}$/.test(symbol) || !network || network.length > 20) {
-    return fail("Provide symbol and network.");
-  }
-  if (address.length < 10 || address.length > 128 || /\s/.test(address)) {
-    return fail("Provide a valid deposit address (no spaces).");
-  }
-
-  const before = await prisma.platformWallet.findUnique({ where: { symbol } });
-  await prisma.platformWallet.upsert({
-    where: { symbol },
-    update: { network, address, note, isActive: true },
-    create: { symbol, network, address, note },
-  });
-  // Deposit address changes are high-risk: always audit and alert.
-  await writeAudit("admin.wallet_update", {
-    userId: admin.id,
-    meta: { symbol, network, from: before?.address ?? null, to: address },
-  });
-  void notifyAdmin("admin.wallet_updated", { symbol, network, address, adminId: admin.id });
-  return ok(null, "Deposit wallet updated.");
-}
-
 /** Pull live benchmark and write desk crypto rates. Shared by admin button and cron. */
 export async function syncDeskRatesFromMarket(): Promise<
   ServiceResult<{ source: string; desk: ReturnType<typeof deskQuotesFromBenchmark> }>

@@ -6,6 +6,7 @@ import { rateLimit, writeAudit } from "@/lib/security";
 import { mulNgn } from "@/lib/money";
 import { quoteConfig, quoteExpiry, quoteStatus, rateIsStale, secondsLeft, type QuoteStatus } from "@/lib/quote-rules";
 import { fail, ok, TOO_MANY, type ServiceResult } from "@/lib/services/result";
+import { assetTradable } from "@/lib/services/assets";
 
 /**
  * Quotes: a locked price with an expiry.
@@ -88,6 +89,8 @@ export async function createQuote(user: Actor, input: unknown, ctx: Ctx): Promis
   if (!rate || !rate.isActive) {
     return fail(kind === "CRYPTO" ? "This asset is not available right now." : "This gift card is not available right now.");
   }
+  // Never promise a price for crypto that cannot move on any network in this direction.
+  if (kind === "CRYPTO" && !(await assetTradable(symbol, side))) return fail("This asset is not available right now.");
   const unit = kind === "CRYPTO" ? ` ${rate.symbol}` : " USD face value";
   if (amount < rate.minAmount) return fail(`Minimum is ${rate.minAmount}${unit}.`);
   if (rate.maxAmount && amount > rate.maxAmount) return fail(`Maximum is ${rate.maxAmount}${unit}.`);

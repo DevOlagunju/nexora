@@ -130,49 +130,30 @@ async function main() {
     });
   }
 
-  await prisma.platformWallet.upsert({
-    where: { symbol: "USDT" },
-    update: {
-      network: "TRC20",
-      address: "TNexoraDemoUSDTAddressReplaceMe111",
-      isActive: true,
-      note: "Replace with your live TRC20 USDT wallet before going live",
-    },
-    create: {
-      symbol: "USDT",
-      network: "TRC20",
-      address: "TNexoraDemoUSDTAddressReplaceMe111",
-      note: "Replace with your live TRC20 USDT wallet before going live",
-    },
-  });
-
-  await prisma.platformWallet.upsert({
-    where: { symbol: "BTC" },
-    update: {
-      network: "BTC",
-      address: "bc1qnexorademobtcaddressreplaceme000",
-      isActive: true,
-    },
-    create: {
-      symbol: "BTC",
-      network: "BTC",
-      address: "bc1qnexorademobtcaddressreplaceme000",
-    },
-  });
-
-  await prisma.platformWallet.upsert({
-    where: { symbol: "ETH" },
-    update: {
-      network: "ERC20",
-      address: "0xNexoraDemoETHAddressReplaceMe00000000",
-      isActive: true,
-    },
-    create: {
-      symbol: "ETH",
-      network: "ERC20",
-      address: "0xNexoraDemoETHAddressReplaceMe00000000",
-    },
-  });
+  // Each asset's default network and deposit address. The networks themselves are created by
+  // the asset_network_registry migration. These addresses are placeholders: replace them on
+  // the admin desk (Assets and networks) before going live; the desk checks the format.
+  const placeholders = [
+    { symbol: "USDT", network: "TRC20", address: "TNexoraDemoUSDTAddressReplaceMe111", note: "Replace with your live TRC20 USDT wallet before going live" },
+    { symbol: "BTC", network: "BTC", address: "bc1qnexorademobtcaddressreplaceme000", note: null },
+    { symbol: "ETH", network: "ERC20", address: "0xNexoraDemoETHAddressReplaceMe00000000", note: null },
+  ];
+  for (const p of placeholders) {
+    const network = await prisma.blockchainNetwork.findUniqueOrThrow({ where: { code: p.network } });
+    await prisma.assetNetwork.upsert({
+      where: { symbol_networkId: { symbol: p.symbol, networkId: network.id } },
+      // Never overwrite an address someone has already set.
+      update: {},
+      create: {
+        symbol: p.symbol,
+        networkId: network.id,
+        depositAddress: p.address,
+        confirmations: network.defaultConfirmations,
+        isDefault: (await prisma.assetNetwork.count({ where: { symbol: p.symbol, isDefault: true } })) === 0,
+        note: p.note,
+      },
+    });
+  }
 
   console.log("Seed complete.");
   console.log(`Admin: ${adminEmail}`);

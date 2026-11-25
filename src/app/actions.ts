@@ -40,7 +40,6 @@ import {
   syncDeskRatesFromMarket,
   updateOrderStatus,
   updateRate,
-  updateWallet,
   verifyOrderPayout,
 } from "@/lib/services/desk";
 import {
@@ -53,6 +52,7 @@ import { markNotificationsRead } from "@/lib/services/notifications";
 import { createRateAlert, deleteRateAlert } from "@/lib/services/rate-alerts";
 import { startBuyOrderCheckout, startWalletFunding } from "@/lib/services/payments";
 import { publicOrigin } from "@/lib/origin";
+import { addAssetNetwork, updateAssetNetwork } from "@/lib/services/assets";
 import { can, denialMessage, orderUpdatePermission, type Permission } from "@/lib/permissions";
 
 export type ActionResult =
@@ -191,7 +191,7 @@ export async function submitKycAction(formData: FormData): Promise<ActionResult>
 export async function createCryptoSellAction(formData: FormData): Promise<ActionResult> {
   const user = await userOrError();
   if (isActionResult(user)) return user;
-  const input = fields(formData, "symbol", "amountCrypto", "txHash", "payoutMethod");
+  const input = fields(formData, "symbol", "network", "amountCrypto", "txHash", "payoutMethod");
   if (!input.txHash) delete input.txHash;
   return toAction(await createCryptoSellOrder(user, input, await requestCtx()), revalidateTradeViews);
 }
@@ -199,7 +199,7 @@ export async function createCryptoSellAction(formData: FormData): Promise<Action
 export async function createCryptoBuyAction(formData: FormData): Promise<ActionResult> {
   const user = await userOrError();
   if (isActionResult(user)) return user;
-  const input = fields(formData, "symbol", "amountCrypto", "userReceiveAddress", "paymentRef", "payFrom");
+  const input = fields(formData, "symbol", "network", "amountCrypto", "userReceiveAddress", "paymentRef", "payFrom");
   if (!input.paymentRef) delete input.paymentRef;
   const ctx = await requestCtx();
   const result = await createCryptoBuyOrder(user, input, ctx);
@@ -324,10 +324,22 @@ export async function reviewKycAction(formData: FormData): Promise<ActionResult>
   return toAction(result, revalidateTradeViews);
 }
 
-export async function updateWalletAction(formData: FormData): Promise<ActionResult> {
+/** Change an asset's settings on one network (deposit address, confirmations, on/off, default). */
+export async function updateAssetNetworkAction(formData: FormData): Promise<ActionResult> {
   const admin = await staffOrError("wallets.manage");
   if (isActionResult(admin)) return admin;
-  const result = await updateWallet(admin, fields(formData, "symbol", "network", "address", "note"));
+  const result = await updateAssetNetwork(
+    admin,
+    fields(formData, "id", "depositAddress", "depositMemo", "confirmations", "depositsEnabled", "withdrawalsEnabled", "isDefault", "note"),
+  );
+  return toAction(result, revalidateTradeViews);
+}
+
+/** Put an asset on another network. It starts switched off. */
+export async function addAssetNetworkAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("wallets.manage");
+  if (isActionResult(admin)) return admin;
+  const result = await addAssetNetwork(admin, fields(formData, "symbol", "networkId", "depositAddress", "depositMemo", "note"));
   return toAction(result, revalidateTradeViews);
 }
 

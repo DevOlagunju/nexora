@@ -25,10 +25,12 @@ beforeAll(async () => {
       { kind: "CRYPTO", symbol: "ETH", displayName: "Ether", sellRateNgn: 4_000_000, buyRateNgn: 4_050_000, minAmount: 0.01, updatedAt: new Date(Date.now() - 2 * 24 * 3_600_000) },
     ],
   });
-  await prisma.platformWallet.createMany({
+  const net = async (code: string) => (await prisma.blockchainNetwork.findUniqueOrThrow({ where: { code } })).id;
+  await prisma.assetNetwork.createMany({
     data: [
-      { symbol: "USDT", network: "TRC20", address: "TPlatformDepositAddress000000000001" },
-      { symbol: "BTC", network: "Bitcoin", address: "bc1qplatformdepositaddress0000000001" },
+      { symbol: "USDT", networkId: await net("TRC20"), depositAddress: "TPlatformDepositAddress000000000001", confirmations: 20, isDefault: true },
+      { symbol: "BTC", networkId: await net("BTC"), depositAddress: "bc1qplatformdepositaddress0000000001", confirmations: 2, isDefault: true },
+      { symbol: "ETH", networkId: await net("ERC20"), depositAddress: "0x0000000000000000000000000000000000000001", confirmations: 12, isDefault: true },
     ],
   });
 });

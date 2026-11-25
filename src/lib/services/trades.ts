@@ -12,6 +12,8 @@ import type { AssetKind } from "@/generated/prisma/enums";
 import { fail, ok, TOO_MANY, type ServiceResult } from "@/lib/services/result";
 import { debitWallet } from "@/lib/services/wallet";
 import { claimQuote, quoteForOrder, QuoteGoneError } from "@/lib/services/quotes";
+import { resolveAssetNetwork } from "@/lib/services/assets";
+import { addressProblem } from "@/lib/asset-rules";
 
 /**
  * Customer trade flows shared by web server actions and the mobile JSON API.
@@ -72,14 +74,16 @@ export async function createCryptoSellOrder(
   // With a quote, the asset and amount are the quote's: the customer accepts it as it stands.
   const parsed = cryptoSellSchema.safeParse(quote ? { ...(input as object), symbol: quote.symbol, amountCrypto: quote.amount } : input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
-  const { symbol, amountCrypto, txHash, payoutMethod } = parsed.data;
+  const { symbol, network: requestedNetwork, amountCrypto, txHash, payoutMethod } = parsed.data;
 
   const rateRes = await loadTradableRate("CRYPTO", symbol, amountCrypto, "coin");
   if (!rateRes.ok) return rateRes;
   const rate = rateRes.data;
 
-  const wallet = await prisma.platformWallet.findUnique({ where: { symbol } });
-  if (!wallet?.isActive) return fail("Deposit wallet unavailable. Contact support.", 503);
+  // Which network, and where the customer sends the asset, come from the registry.
+  const placed = await resolveAssetNetwork(symbol, "SELL", requestedNetwork);
+  if (!placed.ok) return placed;
+  const wallet = placed.data;
 
   // A quote's locked price wins; otherwise the desk rate at this moment is authoritative.
   const rateNgn = quote?.rateNgn ?? rate.sellRateNgn;
@@ -96,12 +100,12 @@ export async function createCryptoSellOrder(
           reference,
           userId: user.id,
           symbol,
-          network: wallet.network,
+          network: wallet.network.code,
           side: "SELL",
           amountCrypto,
           rateNgn,
           amountNgn,
-          depositAddress: wallet.address,
+          depositAddress: wallet.depositAddress,
           txHash: txHash || undefined,
           payoutMethod,
           bankName: kyc.bankName,
@@ -130,7 +134,9 @@ export async function createCryptoSellOrder(
 
   return ok(
     order,
-    `Order ${order.reference} created. Send ${amountCrypto} ${order.symbol} (${order.network}) to ${order.depositAddress}, then submit your TX hash from Orders.`,
+    `Order ${order.reference} created. Send ${amountCrypto} ${order.symbol} on ${order.network} only to ${order.depositAddress}${
+      wallet.depositMemo ? ` with memo ${wallet.depositMemo}` : ""
+    }, then submit your TX hash from Orders.`,
   );
 }
 
@@ -150,14 +156,18 @@ export async function createCryptoBuyOrder(
 
   const parsed = cryptoBuySchema.safeParse(quote ? { ...(input as object), symbol: quote.symbol, amountCrypto: quote.amount } : input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
-  const { symbol, amountCrypto, userReceiveAddress, paymentRef, payFrom } = parsed.data;
+  const { symbol, network: requestedNetwork, amountCrypto, userReceiveAddress, paymentRef, payFrom } = parsed.data;
 
   const rateRes = await loadTradableRate("CRYPTO", symbol, amountCrypto, "coin");
   if (!rateRes.ok) return rateRes;
   const rate = rateRes.data;
 
-  const wallet = await prisma.platformWallet.findUnique({ where: { symbol } });
-  if (!wallet?.isActive) return fail("Asset network unavailable. Contact support.", 503);
+  // The desk sends the asset out on this network, so the customer's address must belong to it.
+  const placed = await resolveAssetNetwork(symbol, "BUY", requestedNetwork);
+  if (!placed.ok) return placed;
+  const wallet = placed.data;
+  const addressIssue = addressProblem(userReceiveAddress, wallet.network);
+  if (addressIssue) return fail(addressIssue, 422);
 
   const rateNgn = quote?.rateNgn ?? rate.buyRateNgn;
   const amountNgn = quote?.amountNgn ?? mulNgn(amountCrypto, rate.buyRateNgn);
@@ -186,7 +196,7 @@ export async function createCryptoBuyOrder(
           reference,
           userId: user.id,
           symbol,
-          network: wallet.network,
+          network: wallet.network.code,
           side: "BUY",
           amountCrypto,
           rateNgn,

@@ -32,7 +32,13 @@ async function main() {
   }
 
   const passwordHash = await bcrypt.hash("DemoPass2026", 12);
-  const wallets = Object.fromEntries((await prisma.platformWallet.findMany()).map((w) => [w.symbol, w]));
+  // Each asset's default network and deposit address, from the registry.
+  const wallets = Object.fromEntries(
+    (await prisma.assetNetwork.findMany({ where: { isDefault: true }, include: { network: true } })).map((w) => [
+      w.symbol,
+      { network: w.network.code, address: w.depositAddress },
+    ]),
+  );
   const bank = { bankName: "GTBank", accountNumber: "0123456789", accountName: "Ada Okafor" };
 
   const demo = await prisma.user.create({

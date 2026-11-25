@@ -33,6 +33,7 @@ import { paymentStatusFor, startBuyOrderCheckout, startWalletFunding } from "@/l
 import { activeGatewayName } from "@/lib/payments/gateway";
 import { paymentConfig } from "@/lib/payment-rules";
 import { publicOrigin } from "@/lib/origin";
+import { defaultDepositWallets } from "@/lib/services/assets";
 
 export const dynamic = "force-dynamic";
 
@@ -111,10 +112,8 @@ export async function GET(request: Request) {
       },
     }),
     prisma.rate.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
-    prisma.platformWallet.findMany({
-      where: { isActive: true },
-      select: { symbol: true, network: true, address: true, note: true },
-    }),
+    // Same shape the app has always had: one deposit wallet per asset, its default network.
+    defaultDepositWallets().then((ws) => ws.map(({ symbol, network, address, note }) => ({ symbol, network, address, note }))),
     prisma.user.findUnique({
       where: { id: user.id },
       select: { walletBalanceNgn: true, transactionPinHash: true, referralCode: true },
