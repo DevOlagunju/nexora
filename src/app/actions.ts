@@ -54,6 +54,7 @@ import { startBuyOrderCheckout, startWalletFunding } from "@/lib/services/paymen
 import { publicOrigin } from "@/lib/origin";
 import { addAssetNetwork, updateAssetNetwork } from "@/lib/services/assets";
 import { addGiftCardRate, updateGiftCardRate } from "@/lib/services/giftcards";
+import { recordGiftRedemption } from "@/lib/services/reports";
 import { can, denialMessage, orderUpdatePermission, type Permission } from "@/lib/permissions";
 
 export type ActionResult =
@@ -265,7 +266,7 @@ export async function updateRateAction(formData: FormData): Promise<ActionResult
   const admin = await staffOrError("rates.manage");
   if (isActionResult(admin)) return admin;
   const result = await updateRate(admin, {
-    ...fields(formData, "id", "sellRateNgn", "buyRateNgn"),
+    ...fields(formData, "id", "sellRateNgn", "buyRateNgn", "sellSpreadPct", "buySpreadPct"),
     isActive: checked(formData, "isActive"),
   });
   return toAction(result, revalidateTradeViews);
@@ -328,6 +329,13 @@ export async function verifyOrderPayoutAction(formData: FormData): Promise<Actio
   if (isActionResult(admin)) return admin;
   const channel = formData.get("channel") === "gift" ? "gift" : "crypto";
   return toAction(await verifyOrderPayout(admin, channel, fields(formData, "id")), revalidateTradeViews);
+}
+
+/** Record what the desk got for a gift card, for the earnings report. */
+export async function recordGiftRedemptionAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("orders.review");
+  if (isActionResult(admin)) return admin;
+  return toAction(await recordGiftRedemption(admin, fields(formData, "id", "redeemedNgn")), revalidateTradeViews);
 }
 
 /** Admin-only: decrypt gift code on demand. Every reveal is audited. */

@@ -1,12 +1,14 @@
+import { roundNgn } from "@/lib/money";
+
+/**
+ * Market prices only. Nexora's own buy and sell rates are the desk rates stored on Rate:
+ * the sync derives them from these market prices and each asset's spread (deskRatesFromMid).
+ */
 export type BenchmarkQuote = {
-  /** Mid USDT/NGN used for desk pricing */
+  /** Market mid, USDT/NGN. */
   referenceMid: number;
-  nexoraSell: number;
-  nexoraBuy: number;
   btcUsd: number;
   ethUsd: number;
-  btcNgnSell: number;
-  ethNgnSell: number;
   fetchedAt: string;
   source: string;
 };
@@ -54,17 +56,10 @@ function buildQuote(input: {
   ethUsd: number;
   source: string;
 }): BenchmarkQuote {
-  const referenceMid = Math.round(input.mid);
-  const nexoraSell = referenceMid;
-  const nexoraBuy = referenceMid + 20;
   return {
-    referenceMid,
-    nexoraSell,
-    nexoraBuy,
+    referenceMid: roundNgn(input.mid),
     btcUsd: input.btcUsd,
     ethUsd: input.ethUsd,
-    btcNgnSell: Math.round(input.btcUsd * nexoraSell),
-    ethNgnSell: Math.round(input.ethUsd * nexoraSell),
     fetchedAt: new Date().toISOString(),
     source: input.source,
   };
@@ -227,20 +222,26 @@ export async function fetchRateBenchmark(ngnMidHint?: number): Promise<Benchmark
   }
 }
 
-export function deskQuotesFromBenchmark(b: BenchmarkQuote) {
+/** Market mid in Naira for each asset the benchmark covers. */
+export function marketMidsFromBenchmark(b: BenchmarkQuote) {
   return {
-    USDT: { mid: b.referenceMid, sell: b.nexoraSell, buy: b.nexoraBuy },
-    BTC: {
-      mid: Math.round(b.btcUsd * b.referenceMid),
-      sell: b.btcNgnSell,
-      buy: Math.round(b.btcUsd * b.nexoraBuy),
-    },
-    ETH: {
-      mid: Math.round(b.ethUsd * b.referenceMid),
-      sell: b.ethNgnSell,
-      buy: Math.round(b.ethUsd * b.nexoraBuy),
-    },
-    fetchedAt: b.fetchedAt,
-    source: b.source,
+    USDT: b.referenceMid,
+    BTC: roundNgn(b.btcUsd * b.referenceMid),
+    ETH: roundNgn(b.ethUsd * b.referenceMid),
+  };
+}
+
+export type Spread = { sellSpreadPct: number; buySpreadPct: number };
+
+/**
+ * Desk rates from a market mid and a spread. The margin is built into the rate, with no
+ * separate trading fee (the model Jeroid publishes): customers sell to Nexora below the
+ * market and buy from it above. Pure, unit tested.
+ */
+export function deskRatesFromMid(midNgn: number, spread: Spread): { sell: number; buy: number } {
+  const clamp = (p: number) => Math.min(Math.max(Number.isFinite(p) ? p : 0, 0), 50);
+  return {
+    sell: roundNgn(midNgn * (1 - clamp(spread.sellSpreadPct) / 100)),
+    buy: roundNgn(midNgn * (1 + clamp(spread.buySpreadPct) / 100)),
   };
 }

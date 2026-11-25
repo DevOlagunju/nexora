@@ -1,7 +1,7 @@
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { fetchLiveMarkets } from "@/lib/markets-live";
-import { fetchRateBenchmark, deskQuotesFromBenchmark } from "@/lib/rate-benchmark";
+import { loadDeskPayload } from "@/lib/desk-rates";
 import { QuickPayout } from "@/components/quick-payout";
 import { RateSellLists } from "@/components/rate-sell-lists";
 import { LiveMarketsTable } from "@/components/live-markets-table";
@@ -22,68 +22,11 @@ export default async function RatesPage() {
     fetchLiveMarkets(30).catch(() => []),
   ]);
 
-  let ngnPayload: {
-    market: { usdtNgn: number; btcNgn: number; ethNgn: number; fetchedAt: string };
-    desk: {
-      USDT: { mid: number; sell: number; buy: number };
-      BTC: { mid: number; sell: number; buy: number };
-      ETH: { mid: number; sell: number; buy: number };
-    };
-  } | null = null;
-  let fetchedAt: string | null = null;
-  let source = "desk";
-
-  try {
-    const benchmark = await fetchRateBenchmark();
-    const desk = deskQuotesFromBenchmark(benchmark);
-    fetchedAt = benchmark.fetchedAt;
-    source = "live";
-    ngnPayload = {
-      market: {
-        usdtNgn: benchmark.referenceMid,
-        btcNgn: desk.BTC.mid,
-        ethNgn: desk.ETH.mid,
-        fetchedAt: benchmark.fetchedAt,
-      },
-      desk: {
-        USDT: desk.USDT,
-        BTC: desk.BTC,
-        ETH: desk.ETH,
-      },
-    };
-  } catch {
-    /* fall back to stored desk rates below */
-  }
-
-  if (!ngnPayload) {
-    const desk = {
-      USDT: { mid: 0, sell: 0, buy: 0 },
-      BTC: { mid: 0, sell: 0, buy: 0 },
-      ETH: { mid: 0, sell: 0, buy: 0 },
-    };
-    for (const r of stored) {
-      if (r.symbol === "USDT" || r.symbol === "BTC" || r.symbol === "ETH") {
-        desk[r.symbol] = {
-          mid: (r.sellRateNgn + r.buyRateNgn) / 2,
-          sell: r.sellRateNgn,
-          buy: r.buyRateNgn,
-        };
-      }
-    }
-    if (desk.USDT.sell) {
-      fetchedAt = new Date().toISOString();
-      source = "desk";
-      ngnPayload = {
-        market: {
-          usdtNgn: desk.USDT.mid,
-          btcNgn: desk.BTC.mid,
-          ethNgn: desk.ETH.mid,
-          fetchedAt,
-        },
-        desk,
-      };
-    }
-  }
+  // Market mid next to the real desk rates (never a rate derived from the market).
+  const loaded = await loadDeskPayload().catch(() => null);
+  const ngnPayload = loaded?.payload ?? null;
+  const fetchedAt: string | null = ngnPayload?.market.fetchedAt ?? null;
+  const source = loaded?.live ? "live" : "desk";
 
   const cryptoRates = stored.filter((r) => r.kind === "CRYPTO");
   const giftRates = stored.filter((r) => r.kind === "GIFTCARD");

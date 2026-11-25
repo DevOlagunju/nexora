@@ -151,6 +151,9 @@ export const rateUpdateSchema = z.object({
   id: z.string().min(1),
   sellRateNgn: z.coerce.number().positive().optional(),
   buyRateNgn: z.coerce.number().positive().optional(),
+  /** Crypto only: the margin the market sync builds into each rate, in percent. */
+  sellSpreadPct: z.coerce.number().min(0, "Spread can't be negative.").max(20, "Spread above 20% looks like a typo.").optional(),
+  buySpreadPct: z.coerce.number().min(0, "Spread can't be negative.").max(20, "Spread above 20% looks like a typo.").optional(),
   isActive: z.coerce.boolean().optional(),
 });
 

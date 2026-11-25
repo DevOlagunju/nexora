@@ -10,7 +10,7 @@ import { notifyOrderStatus } from "@/lib/notify-user";
 import { paystackConfigured, payoutSellOrder, referenceFromTransfer, verifyTransfer } from "@/lib/paystack";
 import { isPayoutLock, newPayoutLock, PAYOUT_LOCK_PREFIX, payoutVerdict } from "@/lib/payout-rules";
 import { canTransition, allowedNextStatuses, STATUS_LABEL } from "@/lib/order-status";
-import { fetchReliableDeskBenchmark, deskQuotesFromBenchmark } from "@/lib/rate-benchmark";
+import { deskRatesFromMid, fetchReliableDeskBenchmark, marketMidsFromBenchmark } from "@/lib/rate-benchmark";
 import { errorMessage, log } from "@/lib/log";
 import type { OrderStatus } from "@/generated/prisma/enums";
 import { fail, ok, type ServiceResult } from "@/lib/services/result";
@@ -546,7 +546,14 @@ export async function revealGiftCode(admin: Admin, orderId: string): Promise<Ser
 
 export async function updateRate(
   admin: Admin,
-  input: { id?: unknown; sellRateNgn?: unknown; buyRateNgn?: unknown; isActive?: boolean },
+  input: {
+    id?: unknown;
+    sellRateNgn?: unknown;
+    buyRateNgn?: unknown;
+    sellSpreadPct?: unknown;
+    buySpreadPct?: unknown;
+    isActive?: boolean;
+  },
 ): Promise<ServiceResult<null>> {
   const parsed = rateUpdateSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid rate input");
@@ -568,12 +575,19 @@ export async function updateRate(
   if (parsed.data.sellRateNgn === undefined || parsed.data.buyRateNgn === undefined) {
     return fail("Enter both the sell and buy rate.");
   }
+  if (parsed.data.sellRateNgn > parsed.data.buyRateNgn) {
+    return fail("The sell rate (what customers get) cannot be above the buy rate (what they pay).", 422);
+  }
+  const sellSpreadPct = parsed.data.sellSpreadPct ?? before.sellSpreadPct;
+  const buySpreadPct = parsed.data.buySpreadPct ?? before.buySpreadPct;
 
   await prisma.rate.update({
     where: { id: parsed.data.id },
     data: {
       sellRateNgn: parsed.data.sellRateNgn,
       buyRateNgn: parsed.data.buyRateNgn,
+      sellSpreadPct,
+      buySpreadPct,
       isActive: parsed.data.isActive ?? true,
     },
   });
@@ -581,33 +595,53 @@ export async function updateRate(
     userId: admin.id,
     meta: {
       symbol: before.symbol,
-      from: { sell: before.sellRateNgn, buy: before.buyRateNgn, active: before.isActive },
-      to: { sell: parsed.data.sellRateNgn, buy: parsed.data.buyRateNgn, active: parsed.data.isActive ?? true },
+      from: {
+        sell: before.sellRateNgn,
+        buy: before.buyRateNgn,
+        sellSpreadPct: before.sellSpreadPct,
+        buySpreadPct: before.buySpreadPct,
+        active: before.isActive,
+      },
+      to: {
+        sell: parsed.data.sellRateNgn,
+        buy: parsed.data.buyRateNgn,
+        sellSpreadPct,
+        buySpreadPct,
+        active: parsed.data.isActive ?? true,
+      },
     },
   });
   const fired = await checkRateAlerts();
   return ok(null, `${fired ? `${fired} customer alert${fired === 1 ? "" : "s"} sent. ` : ""}Rate saved: sell ${parsed.data.sellRateNgn} / buy ${parsed.data.buyRateNgn}.`);
 }
 
-/** Pull live benchmark and write desk crypto rates. Shared by admin button and cron. */
+type SyncedRate = { mid: number; sell: number; buy: number; sellSpreadPct: number; buySpreadPct: number };
+
+/**
+ * Pull live market prices and set the desk crypto rates from them, using each asset's spread
+ * (sell below the market mid, buy above it). Shared by the admin button and the cron.
+ * Records the market mid each rate came from.
+ */
 export async function syncDeskRatesFromMarket(): Promise<
-  ServiceResult<{ source: string; desk: ReturnType<typeof deskQuotesFromBenchmark> }>
+  ServiceResult<{ source: string; desk: Partial<Record<"USDT" | "BTC" | "ETH", SyncedRate>> }>
 > {
   const [usdt, btc, eth] = await Promise.all(
     (["USDT", "BTC", "ETH"] as const).map((symbol) =>
       prisma.rate.findFirst({ where: { kind: "CRYPTO", symbol } }),
     ),
   );
-  // The saved desk rate is the only fallback. With no feed and no saved rate the sync fails; it never invents a price.
-  const usdtMid = usdt && usdt.sellRateNgn > 0 ? usdt.sellRateNgn : undefined;
+  // The last known market mid is the only fallback (the desk rate itself if never synced).
+  // With no feed and no saved rate the sync fails; it never invents a price.
+  const lastMid = (r: typeof usdt) => (r ? (r.marketRateNgn ?? r.sellRateNgn) : undefined);
+  const usdtMid = usdt && (lastMid(usdt) ?? 0) > 0 ? lastMid(usdt) : undefined;
 
   let benchmark;
   try {
     benchmark = await fetchReliableDeskBenchmark({
       ngnMidHint: usdtMid,
-      // Derive USD hints from current desk so sync still works if CoinGecko/Binance are down.
-      btcUsdHint: btc && usdtMid ? btc.sellRateNgn / usdtMid : undefined,
-      ethUsdHint: eth && usdtMid ? eth.sellRateNgn / usdtMid : undefined,
+      // Derive USD hints from the last market mids so sync still works if CoinGecko/Binance are down.
+      btcUsdHint: btc && usdtMid ? lastMid(btc)! / usdtMid : undefined,
+      ethUsdHint: eth && usdtMid ? lastMid(eth)! / usdtMid : undefined,
     });
   } catch (err) {
     const raw = errorMessage(err);
@@ -619,18 +653,26 @@ export async function syncDeskRatesFromMarket(): Promise<
     );
   }
 
-  const desk = deskQuotesFromBenchmark(benchmark);
+  const mids = marketMidsFromBenchmark(benchmark);
+  const at = new Date();
+  const desk: Partial<Record<"USDT" | "BTC" | "ETH", SyncedRate>> = {};
+  for (const [symbol, row] of [["USDT", usdt], ["BTC", btc], ["ETH", eth]] as const) {
+    if (!row) continue;
+    const spread = { sellSpreadPct: row.sellSpreadPct, buySpreadPct: row.buySpreadPct };
+    desk[symbol] = { mid: mids[symbol], ...deskRatesFromMid(mids[symbol], spread), ...spread };
+  }
+  // Only the prices move: an asset the desk switched off stays off.
   await prisma.$transaction(
-    (["USDT", "BTC", "ETH"] as const).map((symbol) =>
+    Object.entries(desk).map(([symbol, d]) =>
       prisma.rate.updateMany({
         where: { kind: "CRYPTO", symbol },
-        data: { sellRateNgn: desk[symbol].sell, buyRateNgn: desk[symbol].buy, isActive: true },
+        data: { sellRateNgn: d.sell, buyRateNgn: d.buy, marketRateNgn: d.mid, marketRateAt: at },
       }),
     ),
   );
   void checkRateAlerts();
-  return ok(
-    { source: benchmark.source, desk },
-    `Synced (${benchmark.source}). USDT ${Math.round(desk.USDT.sell)} / ${Math.round(desk.USDT.buy)}. BTC sell ${Math.round(desk.BTC.sell).toLocaleString("en-NG")}.`,
-  );
+  const summary = Object.entries(desk)
+    .map(([s, d]) => `${s} ${formatNgn(d.sell)} / ${formatNgn(d.buy)} (market ${formatNgn(d.mid)})`)
+    .join(" · ");
+  return ok({ source: benchmark.source, desk }, `Synced (${benchmark.source}). ${summary}.`);
 }

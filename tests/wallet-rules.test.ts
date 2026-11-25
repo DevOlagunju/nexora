@@ -14,15 +14,15 @@ const cfg = walletConfig({});
 describe("walletConfig", () => {
   it("has safe defaults and ignores junk env", () => {
     expect(cfg.minWithdrawalNgn).toBe(1_000);
-    expect(cfg.withdrawalFeeNgn).toBe(50);
-    expect(walletConfig({ WALLET_WITHDRAWAL_FEE_NGN: "-5" }).withdrawalFeeNgn).toBe(50);
+    expect(cfg.withdrawalFeeNgn).toBe(100);
+    expect(walletConfig({ WALLET_WITHDRAWAL_FEE_NGN: "-5" }).withdrawalFeeNgn).toBe(100);
     expect(walletConfig({ WALLET_WITHDRAWAL_FEE_NGN: "0" }).withdrawalFeeNgn).toBe(0);
   });
 });
 
 describe("quoteWithdrawal", () => {
   it("charges the fee on top so the customer receives the exact amount", () => {
-    expect(quoteWithdrawal(5_000, 10_000, cfg)).toEqual({ ok: true, amountNgn: 5_000, feeNgn: 50, totalNgn: 5_050 });
+    expect(quoteWithdrawal(5_000, 10_000, cfg)).toEqual({ ok: true, amountNgn: 5_000, feeNgn: 100, totalNgn: 5_100 });
   });
   it("refuses when amount + fee exceeds the balance", () => {
     const q = quoteWithdrawal(10_000, 10_000, cfg);
@@ -38,7 +38,7 @@ describe("quoteWithdrawal", () => {
     expect(q.ok && q.amountNgn).toBe(1_000.01);
   });
   it("maxWithdrawable leaves room for the fee", () => {
-    expect(maxWithdrawable(10_000, cfg)).toBe(9_950);
+    expect(maxWithdrawable(10_000, cfg)).toBe(9_900);
     expect(maxWithdrawable(20, cfg)).toBe(0);
   });
 });

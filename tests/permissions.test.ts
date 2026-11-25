@@ -27,12 +27,13 @@ const EXPECTED: Record<StaffRole, Permission[]> = {
     "giftcards.reveal",
     "withdrawals.process",
     "payouts.verify",
+    "reports.view",
   ],
   TRADING_OFFICER: ["desk.view", "rates.manage", "orders.review", "giftcards.reveal"],
-  FINANCE_OFFICER: ["desk.view", "orders.payout", "withdrawals.process", "payouts.verify"],
+  FINANCE_OFFICER: ["desk.view", "orders.payout", "withdrawals.process", "payouts.verify", "reports.view"],
   COMPLIANCE_OFFICER: ["desk.view", "kyc.review"],
   CUSTOMER_SUPPORT: ["desk.view"],
-  AUDITOR: ["desk.view"],
+  AUDITOR: ["desk.view", "reports.view"],
 };
 
 describe("staff permissions", () => {

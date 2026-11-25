@@ -11,9 +11,11 @@ import {
   addAssetNetworkAction,
   updateGiftCardRateAction,
   addGiftCardRateAction,
+  recordGiftRedemptionAction,
 } from "@/app/actions";
 import { isPayoutLock } from "@/lib/payout-rules";
-import { staffRoleLabel } from "@/lib/permissions";
+import { can, staffRoleLabel } from "@/lib/permissions";
+import { earningsOverview } from "@/lib/services/reports";
 import { adminRegistry } from "@/lib/services/assets";
 import { explorerTxLink } from "@/lib/asset-rules";
 import { adminGiftCardRates } from "@/lib/services/giftcards";
@@ -44,7 +46,9 @@ export default async function AdminPage() {
   if (!user) redirect("/login");
   if (user.role !== "ADMIN") redirect("/dashboard");
 
-  const [rates, registry, giftRates, pendingKyc, cryptoOrdersRaw, giftOrdersRaw, withdrawals] = await Promise.all([
+  const [earnings, rates, registry, giftRates, pendingKyc, cryptoOrdersRaw, giftOrdersRaw, withdrawals] = await Promise.all([
+    // Only staff allowed to see earnings get them computed at all.
+    can(user, "reports.view") ? earningsOverview() : Promise.resolve(null),
     prisma.rate.findMany({ orderBy: { sortOrder: "asc" } }),
     adminRegistry(),
     adminGiftCardRates(),
@@ -149,6 +153,7 @@ export default async function AdminPage() {
         </div>
 
         <nav className="dash-nav mt-8" aria-label="Admin sections">
+          {earnings && <a href="#earnings">Earnings</a>}
           <a href="#rates">Rates</a>
           <a href="#giftcard-rates">Gift card rates</a>
           <a href="#wallets">Assets &amp; networks</a>
@@ -157,6 +162,60 @@ export default async function AdminPage() {
           <a href="#crypto">Crypto</a>
           <a href="#gift">Gift cards</a>
         </nav>
+
+        {earnings && (
+          <section id="earnings" className="mb-14 scroll-mt-24">
+            <p className="section-label">Earnings</p>
+            <h2 className="mt-1 font-[family-name:var(--font-display)] text-2xl font-bold">What the desk earned</h2>
+            <p className="mt-1 text-sm text-ink-soft">
+              Completed trades only. Crypto earns the spread against the market price at the time of the order; gift cards
+              earn what the card was redeemed for minus what the customer was paid; fees are what the ledger booked.
+              Provider costs (payment gateway, exchange, network fees) are not taken off yet.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              {(
+                [
+                  ["Today", earnings.today],
+                  ["Last 7 days", earnings.week],
+                  ["Last 30 days", earnings.month],
+                ] as const
+              ).map(([label, r]) => (
+                <div key={label} className="panel text-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">{label}</p>
+                  <p className="mt-1 font-[family-name:var(--font-display)] text-2xl font-bold text-ink">{formatNgn(r.totalNgn)}</p>
+                  <ul className="mt-3 space-y-1">
+                    {r.crypto.map((l) => (
+                      <li key={l.key} className="flex justify-between gap-2">
+                        <span>
+                          {l.key} <span className="text-ink-soft">({l.trades})</span>
+                        </span>
+                        <span>{formatNgn(l.earnedNgn)}</span>
+                      </li>
+                    ))}
+                    {r.gift.map((l) => (
+                      <li key={l.key} className="flex justify-between gap-2">
+                        <span>
+                          {l.key} gift cards <span className="text-ink-soft">({l.trades})</span>
+                        </span>
+                        <span>{formatNgn(l.earnedNgn)}</span>
+                      </li>
+                    ))}
+                    <li className="flex justify-between gap-2">
+                      <span>Fees</span>
+                      <span>{formatNgn(r.feesNgn)}</span>
+                    </li>
+                  </ul>
+                  {r.unpriced > 0 && (
+                    <p className="mt-3 text-xs text-amber-900">
+                      {r.unpriced} completed trade{r.unpriced === 1 ? "" : "s"} not counted: no market price at the time, or
+                      the gift card&apos;s redemption value isn&apos;t recorded yet.
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section id="rates" className="scroll-mt-24">
           <div className="flex flex-wrap items-end justify-between gap-3">
@@ -223,6 +282,38 @@ export default async function AdminPage() {
                         required
                       />
                     </label>
+                    <label className="text-sm">
+                      Sell spread %
+                      <input
+                        className="input mt-1"
+                        name="sellSpreadPct"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        max={20}
+                        defaultValue={r.sellSpreadPct}
+                        required
+                      />
+                    </label>
+                    <label className="text-sm">
+                      Buy spread %
+                      <input
+                        className="input mt-1"
+                        name="buySpreadPct"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        max={20}
+                        defaultValue={r.buySpreadPct}
+                        required
+                      />
+                    </label>
+                    <p className="col-span-2 text-xs text-ink-soft">
+                      {r.marketRateNgn
+                        ? `Last synced market: ${formatNgn(r.marketRateNgn)} (${r.marketRateAt?.toLocaleString("en-NG", { timeZone: "Africa/Lagos" })}). `
+                        : "Not synced from the market yet. "}
+                      Sync sets sell = market − sell spread, buy = market + buy spread. No separate trading fee is charged.
+                    </p>
                   </div>
                 )}
                 <label className="mt-3 flex items-center gap-2 text-sm">
@@ -802,6 +893,29 @@ export default async function AdminPage() {
                     <PayoutHint side="SELL" method={o.payoutMethod} status={o.status} />
                   </ActionForm>
                   <VerifyPayout channel="gift" id={o.id} status={o.status} payoutRef={o.payoutRef} enabled={canPaystack} />
+                  {["UNDER_REVIEW", "APPROVED", "PAYOUT_SENT", "COMPLETED"].includes(o.status) && (
+                    <ActionForm
+                      action={recordGiftRedemptionAction}
+                      className="mt-4 border-t border-[var(--line)] pt-4"
+                      resetOnSuccess={false}
+                      submitLabel="Save redemption"
+                    >
+                      <input type="hidden" name="id" value={o.id} />
+                      <label className="block text-sm">
+                        Redeemed or sold for (₦), for the earnings report
+                        <input
+                          className="input mt-1"
+                          name="redeemedNgn"
+                          type="number"
+                          step="any"
+                          min={0}
+                          defaultValue={o.redeemedNgn ?? ""}
+                          placeholder={`Paid customer ${formatNgn(o.amountNgn)}`}
+                          required
+                        />
+                      </label>
+                    </ActionForm>
+                  )}
                 </article>
               );
             })}
