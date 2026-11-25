@@ -112,6 +112,8 @@ model User {
   ledgerAccounts      LedgerAccount[]
   quotes              Quote[]
   depositAddresses    DepositAddress[]
+  approvalsRequested  ApprovalRequest[] @relation("ApprovalRequester")
+  approvalsDecided    ApprovalRequest[] @relation("ApprovalDecider")
 }
 
 /// Makes a retried API request safe: the first response for a key is stored and replayed,
@@ -699,4 +701,48 @@ model WebhookEvent {
 
   @@unique([provider, eventId])
   @@index([provider, receivedAt])
+}
+
+// ---------------------------------------------------------------- two-person approval
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  /// Approved, but the change could no longer be applied (e.g. the target changed, or funds ran short).
+  FAILED
+  EXPIRED
+}
+
+/**
+ * A sensitive change one staff member asks for and a different one must approve (maker-checker,
+ * specification section 13). Nothing is applied until it is approved; the request records who asked,
+ * who decided, and what happened.
+ */
+model ApprovalRequest {
+  id            String         @id @default(cuid())
+  /// What is being asked for, e.g. "asset_network.update", "ledger.adjustment".
+  action        String
+  /// The input the change will be applied with, as JSON.
+  payload       String
+  /// Plain-words description shown to the approver.
+  summary       String
+  /// Version of the target when requested (its updatedAt); approval is refused if it has changed since.
+  targetVersion String?
+  reason        String?
+  status        ApprovalStatus @default(PENDING)
+  requestedById String
+  requestedAt   DateTime       @default(now())
+  expiresAt     DateTime
+  decidedById   String?
+  decidedAt     DateTime?
+  decisionNote  String?
+  /// What applying it did, or why it could not be applied.
+  result        String?
+
+  requestedBy User  @relation("ApprovalRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy   User? @relation("ApprovalDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  @@index([status, requestedAt])
 }

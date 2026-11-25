@@ -13,12 +13,16 @@ import {
   addGiftCardRateAction,
   recordGiftRedemptionAction,
   resolveDepositAction,
+  requestWalletAdjustmentAction,
+  decideApprovalAction,
+  cancelApprovalAction,
   simulateDepositAction,
 } from "@/app/actions";
 import { isPayoutLock } from "@/lib/payout-rules";
 import { can, staffRoleLabel } from "@/lib/permissions";
 import { earningsOverview } from "@/lib/services/reports";
 import { listDeposits } from "@/lib/services/deposits";
+import { ADJUSTMENT_REASONS, approvalLabel, approvalPermission, listApprovals } from "@/lib/services/approvals";
 import { adminRegistry } from "@/lib/services/assets";
 import { explorerTxLink } from "@/lib/asset-rules";
 import { adminGiftCardRates } from "@/lib/services/giftcards";
@@ -49,8 +53,9 @@ export default async function AdminPage() {
   if (!user) redirect("/login");
   if (user.role !== "ADMIN") redirect("/dashboard");
 
-  const [earnings, deposits, rates, registry, giftRates, pendingKyc, cryptoOrdersRaw, giftOrdersRaw, withdrawals] = await Promise.all([
+  const [approvals, earnings, deposits, rates, registry, giftRates, pendingKyc, cryptoOrdersRaw, giftOrdersRaw, withdrawals] = await Promise.all([
     // Only staff allowed to see earnings get them computed at all.
+    listApprovals(),
     can(user, "reports.view") ? earningsOverview() : Promise.resolve(null),
     listDeposits(),
     prisma.rate.findMany({ orderBy: { sortOrder: "asc" } }),
@@ -157,6 +162,7 @@ export default async function AdminPage() {
         </div>
 
         <nav className="dash-nav mt-8" aria-label="Admin sections">
+          <a href="#approvals">Approvals{approvals.pending.length > 0 ? ` (${approvals.pending.length})` : ""}</a>
           {earnings && <a href="#earnings">Earnings</a>}
           <a href="#rates">Rates</a>
           <a href="#deposits">Deposits{deposits.exceptions.length > 0 ? ` (${deposits.exceptions.length})` : ""}</a>
@@ -167,6 +173,120 @@ export default async function AdminPage() {
           <a href="#crypto">Crypto</a>
           <a href="#gift">Gift cards</a>
         </nav>
+
+        <section id="approvals" className="mb-14 scroll-mt-24">
+          <p className="section-label">Approvals</p>
+          <h2 className="mt-1 font-[family-name:var(--font-display)] text-2xl font-bold">Changes waiting for a second person</h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Deposit addresses, networks and manual wallet adjustments only take effect when a different staff member with
+            the same permission approves them. Nobody can approve their own request. Requests expire after 72 hours.
+          </p>
+          <div className="mt-4 space-y-3">
+            {approvals.pending.map((r) => {
+              const mine = r.requestedById === user.id;
+              const permission = approvalPermission(r.action);
+              const mayDecide = !mine && !!permission && can(user, permission);
+              return (
+                <div key={r.id} className="panel text-sm">
+                  <p className="font-semibold">{approvalLabel(r.action)}</p>
+                  <p className="mt-1">{r.summary}</p>
+                  {r.reason && <p className="mt-1 text-ink-soft">Reason: {r.reason}</p>}
+                  <p className="mt-1 text-xs text-ink-soft">
+                    Asked by {r.requestedBy.fullName} ({r.requestedBy.email}) ·{" "}
+                    {r.requestedAt.toLocaleString("en-NG", { timeZone: "Africa/Lagos" })} · expires{" "}
+                    {r.expiresAt.toLocaleString("en-NG", { timeZone: "Africa/Lagos" })}
+                  </p>
+                  {mine ? (
+                    <ActionForm action={cancelApprovalAction} className="mt-3" submitLabel="Cancel my request" submitVariant="danger" resetOnSuccess={false}>
+                      <input type="hidden" name="id" value={r.id} />
+                      <p className="text-xs text-ink-soft">Waiting for another staff member to approve.</p>
+                    </ActionForm>
+                  ) : mayDecide ? (
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <ActionForm action={decideApprovalAction} submitLabel="Approve and apply" submitVariant="dark" resetOnSuccess={false}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <input type="hidden" name="decision" value="approve" />
+                        <input className="input" name="note" placeholder={r.action === "ledger.adjustment" ? "What you checked (required)" : "Note (optional)"} />
+                      </ActionForm>
+                      <ActionForm action={decideApprovalAction} submitLabel="Reject" submitVariant="danger" resetOnSuccess={false}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <input type="hidden" name="decision" value="reject" />
+                        <input className="input" name="note" placeholder="Why (optional)" />
+                      </ActionForm>
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-ink-soft">Your role cannot approve this kind of change.</p>
+                  )}
+                </div>
+              );
+            })}
+            {approvals.pending.length === 0 && <p className="text-sm text-ink-soft">Nothing waiting.</p>}
+          </div>
+
+          {can(user, "ledger.adjust") && (
+            <ActionForm action={requestWalletAdjustmentAction} className="panel mt-6" submitLabel="Request adjustment">
+              <p className="font-semibold">Adjust a customer&apos;s wallet</p>
+              <p className="mt-1 text-xs text-ink-soft">
+                For corrections only. Posted to the ledger as an adjustment once another finance staff member approves it.
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-4">
+                <label className="block text-sm md:col-span-2">
+                  Customer email
+                  <input className="input mt-1" name="email" type="email" required />
+                </label>
+                <label className="block text-sm">
+                  Credit or debit
+                  <select className="input mt-1" name="direction" defaultValue="CREDIT">
+                    <option value="CREDIT">Credit (add)</option>
+                    <option value="DEBIT">Debit (take)</option>
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  Amount (₦)
+                  <input className="input mt-1" name="amountNgn" type="number" step="0.01" min="0.01" required />
+                </label>
+                <label className="block text-sm md:col-span-2">
+                  Reason
+                  <select className="input mt-1" name="reasonCode" required defaultValue="">
+                    <option value="" disabled>
+                      Pick
+                    </option>
+                    {Object.entries(ADJUSTMENT_REASONS).map(([code, label]) => (
+                      <option key={code} value={code}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm md:col-span-2">
+                  Details (order or reference, what happened)
+                  <input className="input mt-1" name="note" required minLength={10} />
+                </label>
+              </div>
+            </ActionForm>
+          )}
+
+          {approvals.recent.length > 0 && (
+            <details className="mt-6 text-sm">
+              <summary className="cursor-pointer font-semibold">Recent decisions</summary>
+              <ul className="mt-3 space-y-2">
+                {approvals.recent.map((r) => (
+                  <li key={r.id} className="panel">
+                    <p>
+                      <strong>{r.status}</strong> · {approvalLabel(r.action)} · {r.summary}
+                    </p>
+                    <p className="mt-1 text-xs text-ink-soft">
+                      Asked by {r.requestedBy.fullName}
+                      {r.decidedBy ? `, decided by ${r.decidedBy.fullName}` : ""}
+                      {r.decisionNote ? ` · "${r.decisionNote}"` : ""}
+                      {r.result ? ` · ${r.result}` : ""}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </section>
 
         {earnings && (
           <section id="earnings" className="mb-14 scroll-mt-24">
@@ -565,7 +685,7 @@ export default async function AdminPage() {
                 action={updateAssetNetworkAction}
                 className="panel"
                 resetOnSuccess={false}
-                submitLabel="Save"
+                submitLabel="Request change"
               >
                 <input type="hidden" name="id" value={a.id} />
                 <p className="font-semibold">
@@ -611,7 +731,7 @@ export default async function AdminPage() {
             )}
           </div>
 
-          <ActionForm action={addAssetNetworkAction} className="panel mt-6" submitLabel="Add network">
+          <ActionForm action={addAssetNetworkAction} className="panel mt-6" submitLabel="Request new network">
             <p className="font-semibold">Add an asset on another network</p>
             <p className="mt-1 text-xs text-ink-soft">
               It starts switched off. Check custody, liquidity and the address, then enable Sell or Buy.
