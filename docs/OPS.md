@@ -35,6 +35,22 @@ Hybrid model: automation creates orders + rates; humans confirm money movement.
 3. Redeem / confirm valid → payout NGN → `PAYOUT_SENT` → `COMPLETED`.
 4. Invalid / already used → `REJECTED` + note.
 
+## When Paystack does not confirm a payout
+
+Sometimes Paystack accepts a transfer but the answer never reaches us (timeout, network drop).
+The money may already be on its way, so the system holds the payout instead of guessing:
+
+- The order or withdrawal shows an amber "Paystack has not confirmed" note. A withdrawal stays
+  `PROCESSING`; an order keeps its status and cannot be changed.
+- **Do not pay it by hand.** Press **Verify with Paystack** / **Verify payout with Paystack**.
+  - Paid → it is closed as paid.
+  - Failed → a withdrawal is refunded to the wallet; an order is freed for a manual payout.
+  - No transfer found → after 15 minutes it is released and safe to pay again. Before that it waits.
+- The `/api/cron/reconcile-payments` job does the same check automatically every run, and also
+  completes payouts whose `transfer.success` webhook never arrived.
+- A retry after a **failed** Paystack transfer must be paid manually: Paystack rejects a second
+  transfer with the same reference.
+
 ## KYC
 
 1. Customer submits (BVN/NIN last-4 only stored).

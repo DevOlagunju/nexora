@@ -7,12 +7,23 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 enum Role {
   USER
   ADMIN
+}
+
+/// What a staff member (role ADMIN) is allowed to do. See src/lib/permissions.ts.
+enum StaffRole {
+  SUPER_ADMIN
+  OPERATIONS_MANAGER
+  TRADING_OFFICER
+  FINANCE_OFFICER
+  COMPLIANCE_OFFICER
+  CUSTOMER_SUPPORT
+  AUDITOR
 }
 
 enum KycStatus {
@@ -43,6 +54,25 @@ enum OrderStatus {
   CANCELLED
 }
 
+/// Where a sell order's Naira goes: straight to the bank, or into the Nexora wallet.
+enum PayoutMethod {
+  BANK
+  WALLET
+}
+
+enum LedgerDirection {
+  CREDIT
+  DEBIT
+}
+
+enum WithdrawalStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -50,15 +80,55 @@ model User {
   passwordHash String
   fullName     String
   role         Role     @default(USER)
+  /// Set only for staff (role ADMIN). A staff account without one can view the desk but change nothing.
+  staffRole    StaffRole?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  /// Naira wallet balance: a copy of the customer's ledger account balance, kept in step by the
+  /// database. Application code never writes it (see the ledger migration).
+  walletBalanceNgn Decimal     @default(0) @db.Decimal(18, 2)
+  /// bcrypt hash of the 4-digit transaction PIN (withdrawals).
+  transactionPinHash String?
+  pinFailedCount     Int       @default(0)
+  pinLockedUntil     DateTime?
+  referralCode       String?   @unique
+  referredById       String?
+
+  referredBy          User?          @relation("Referrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals           User[]         @relation("Referrals")
+  walletEntries       WalletEntry[]
+  withdrawals         Withdrawal[]
+  notifications       Notification[]
+  rateAlerts          RateAlert[]
+  payments            Payment[]
   kyc                 KycProfile?
   cryptoOrders        CryptoOrder[]
   giftOrders          GiftCardOrder[]
   auditLogs           AuditLog[]
   sessions            Session[]
   passwordResetTokens PasswordResetToken[]
+  idempotencyKeys     IdempotencyKey[]
+  ledgerAccounts      LedgerAccount[]
+}
+
+/// Makes a retried API request safe: the first response for a key is stored and replayed,
+/// so a repeated "create order" or "withdraw" never happens twice.
+model IdempotencyKey {
+  id             String   @id @default(cuid())
+  userId         String
+  key            String
+  /// sha256 of method + path + body: the same key with a different request is rejected.
+  requestHash    String
+  /// null while the first request is still running.
+  responseStatus Int?
+  responseBody   String?
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([createdAt])
 }
 
 model PasswordResetToken {
@@ -94,6 +164,12 @@ model KycProfile {
   bankName      String?
   accountNumber String?
   accountName   String?
+  /// Paystack/NIP bank code chosen from the bank list (exact payouts, no name guessing).
+  bankCode      String?
+  /// True when accountName came from a live bank lookup, not typed by the customer.
+  accountVerified Boolean @default(false)
+  /// Does the bank account name match the customer's registered name? null = not checked.
+  nameMatch     Boolean?
   status        KycStatus @default(UNVERIFIED)
   reviewNote    String?
   submittedAt   DateTime?
@@ -110,10 +186,10 @@ model Rate {
   symbol      String
   displayName String
   /// NGN per 1 unit (crypto coin or $1 gift card face value)
-  sellRateNgn Float
-  buyRateNgn  Float
-  minAmount   Float     @default(1)
-  maxAmount   Float?
+  sellRateNgn Decimal @db.Decimal(18, 4)
+  buyRateNgn  Decimal @db.Decimal(18, 4)
+  minAmount   Decimal     @default(1) @db.Decimal(36, 18)
+  maxAmount   Decimal? @db.Decimal(36, 18)
   isActive    Boolean   @default(true)
   sortOrder   Int       @default(0)
   updatedAt   DateTime  @updatedAt
@@ -141,9 +217,9 @@ model CryptoOrder {
   symbol             String
   network            String
   side               TradeSide
-  amountCrypto       Float
-  rateNgn            Float
-  amountNgn          Float
+  amountCrypto       Decimal @db.Decimal(36, 18)
+  rateNgn            Decimal @db.Decimal(18, 4)
+  amountNgn          Decimal @db.Decimal(18, 2)
   depositAddress     String?
   /// Where we send crypto when user is buying
   userReceiveAddress String?
@@ -156,6 +232,7 @@ model CryptoOrder {
   status             OrderStatus @default(AWAITING_DEPOSIT)
   adminNote          String?
   payoutRef          String?
+  payoutMethod       PayoutMethod @default(BANK)
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
   completedAt        DateTime?
@@ -169,9 +246,9 @@ model GiftCardOrder {
   userId             String
   brand              String
   country            String      @default("USA")
-  faceValueUsd       Float
-  rateNgn            Float
-  amountNgn          Float
+  faceValueUsd       Decimal @db.Decimal(12, 2)
+  rateNgn            Decimal @db.Decimal(18, 4)
+  amountNgn          Decimal @db.Decimal(18, 2)
   /// AES-GCM ciphertext  -  never store raw gift card codes
   cardCodeEncrypted  String
   cardCodeIv         String
@@ -179,6 +256,7 @@ model GiftCardOrder {
   status             OrderStatus @default(UNDER_REVIEW)
   adminNote          String?
   payoutRef          String?
+  payoutMethod       PayoutMethod @default(BANK)
   bankName           String?
   accountNumber      String?
   accountName        String?
@@ -201,4 +279,189 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+/// Append-only wallet ledger. `reference` is unique so every credit/debit happens at most once
+/// (e.g. "order:NXC-..", "wd:NXW-..", "wd-refund:NXW-..", "referral:<userId>").
+model WalletEntry {
+  id          String          @id @default(cuid())
+  userId      String
+  direction   LedgerDirection
+  amountNgn   Decimal @db.Decimal(18, 2)
+  reference   String          @unique
+  description String
+  createdAt   DateTime        @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model Withdrawal {
+  id            String           @id @default(cuid())
+  reference     String           @unique
+  userId        String
+  amountNgn     Decimal @db.Decimal(18, 2)
+  feeNgn        Decimal            @default(0) @db.Decimal(18, 2)
+  bankName      String
+  accountNumber String
+  accountName   String
+  bankCode      String?
+  status        WithdrawalStatus @default(PENDING)
+  payoutRef     String?
+  adminNote     String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  processedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String
+  body      String
+  href      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+}
+
+enum AlertDirection {
+  ABOVE
+  BELOW
+}
+
+/// "Tell me when USDT sell rate goes above N1,450". One-shot: deactivates when it fires.
+model RateAlert {
+  id          String         @id @default(cuid())
+  userId      String
+  kind        AssetKind
+  symbol      String
+  side        TradeSide
+  direction   AlertDirection
+  targetNgn   Decimal @db.Decimal(18, 4)
+  isActive    Boolean        @default(true)
+  triggeredAt DateTime?
+  createdAt   DateTime       @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([isActive, kind, symbol])
+  @@index([userId, createdAt])
+}
+
+enum PaymentPurpose {
+  WALLET_FUNDING
+  CRYPTO_BUY
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  ABANDONED
+}
+
+/// Naira collected through the payment gateway (card incl. virtual cards, bank transfer, USSD, pay-with-bank).
+/// Marked SUCCESS only after the server re-verifies with the provider; never on the redirect alone.
+model Payment {
+  id           String         @id @default(cuid())
+  reference    String         @unique
+  userId       String
+  purpose      PaymentPurpose
+  /// CryptoOrder.id when purpose is CRYPTO_BUY
+  orderId      String?
+  /// Amount we asked for
+  amountNgn    Decimal @db.Decimal(18, 2)
+  /// Amount the provider says was actually paid
+  paidNgn      Decimal? @db.Decimal(18, 2)
+  provider     String
+  status       PaymentStatus  @default(PENDING)
+  channel      String?
+  providerNote String?
+  paidAt       DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------- double-entry ledger
+
+enum LedgerAccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+/// One account in the chart of accounts. `code` is its stable name, e.g. "customer:<userId>:NGN"
+/// or "asset:provider_clearing:NGN" (see src/lib/ledger/accounts.ts).
+model LedgerAccount {
+  id       String            @id @default(cuid())
+  code     String            @unique
+  name     String
+  type     LedgerAccountType
+  currency String            @default("NGN")
+  /// Set for a customer's own account (what Nexora owes that customer).
+  userId   String?
+  /// Running total of this account's entries, in its normal direction. Maintained by the
+  /// database from LedgerEntry rows; nothing else may change it.
+  balance  Decimal           @default(0) @db.Decimal(18, 2)
+  createdAt DateTime         @default(now())
+
+  user    User?         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  entries LedgerEntry[]
+
+  @@index([userId])
+}
+
+/// One financial event. Its entries always balance (debits = credits), and once written
+/// neither it nor its entries can be changed or deleted: a mistake is fixed by a new
+/// transaction that reverses it (`reversesId`).
+model LedgerTransaction {
+  id          String   @id @default(cuid())
+  /// Unique per event, so the same event can never be posted twice.
+  reference   String   @unique
+  /// deposit | purchase | purchase_refund | sale_proceeds | withdrawal | withdrawal_refund | withdrawal_paid | referral_bonus | adjustment
+  kind        String
+  description String
+  /// Who or what caused it: "system", "customer:<id>", "admin:<id>", "provider:paystack".
+  source      String   @default("system")
+  /// The transaction this one reverses, if it is a reversal.
+  reversesId  String?  @unique
+  postedAt    DateTime @default(now())
+
+  reverses   LedgerTransaction? @relation("Reversal", fields: [reversesId], references: [id], onDelete: Restrict)
+  reversedBy LedgerTransaction? @relation("Reversal")
+  entries    LedgerEntry[]
+
+  @@index([kind, postedAt])
+}
+
+model LedgerEntry {
+  id            String          @id @default(cuid())
+  transactionId String
+  accountId     String
+  direction     LedgerDirection
+  amount        Decimal         @db.Decimal(18, 2)
+  createdAt     DateTime        @default(now())
+
+  transaction LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  account     LedgerAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([accountId, createdAt])
+  @@index([transactionId])
 }

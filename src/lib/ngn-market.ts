@@ -9,6 +9,7 @@ export type NgnMarketQuote = {
   fetchedAt: string;
   nexoraSell: number;
   nexoraBuy: number;
+  source: string;
 };
 
 /** Live NGN desk pricing  -  CoinGecko + Jeroid only */
@@ -23,6 +24,7 @@ export async function fetchNgnMarket(): Promise<NgnMarketQuote> {
     fetchedAt: b.fetchedAt,
     nexoraSell: b.nexoraSell,
     nexoraBuy: b.nexoraBuy,
+    source: b.source,
   };
 }
 
@@ -36,5 +38,6 @@ export function deskQuotesFromMarket(market: NgnMarketQuote) {
     btcNgnSell: Math.round(market.btcUsd * market.nexoraSell),
     ethNgnSell: Math.round(market.ethUsd * market.nexoraSell),
     fetchedAt: market.fetchedAt,
+    source: market.source,
   });
 }

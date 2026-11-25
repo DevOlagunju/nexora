@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { fetchReliableDeskBenchmark, deskQuotesFromBenchmark } from "@/lib/rate-benchmark";
+import { safeEqual } from "@/lib/crypto";
+import { syncDeskRatesFromMarket } from "@/lib/services/desk";
+import { writeAudit } from "@/lib/security";
+import { log } from "@/lib/log";
 
 export const dynamic = "force-dynamic";
 
@@ -16,46 +18,20 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 503 });
   }
   const auth = request.headers.get("authorization") ?? "";
-  if (auth !== `Bearer ${secret}`) {
+  if (!safeEqual(auth, `Bearer ${secret}`)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  try {
-    const usdt = await prisma.rate.findFirst({ where: { kind: "CRYPTO", symbol: "USDT" } });
-    const btc = await prisma.rate.findFirst({ where: { kind: "CRYPTO", symbol: "BTC" } });
-    const eth = await prisma.rate.findFirst({ where: { kind: "CRYPTO", symbol: "ETH" } });
-    const mid = usdt?.sellRateNgn ?? 1380;
-
-    const benchmark = await fetchReliableDeskBenchmark({
-      ngnMidHint: mid,
-      btcUsdHint: btc && mid > 0 ? btc.sellRateNgn / mid : undefined,
-      ethUsdHint: eth && mid > 0 ? eth.sellRateNgn / mid : undefined,
-    });
-    const desk = deskQuotesFromBenchmark(benchmark);
-
-    await Promise.all(
-      (["USDT", "BTC", "ETH"] as const).map((symbol) =>
-        prisma.rate.updateMany({
-          where: { kind: "CRYPTO", symbol },
-          data: {
-            sellRateNgn: desk[symbol].sell,
-            buyRateNgn: desk[symbol].buy,
-            isActive: true,
-          },
-        }),
-      ),
-    );
-
-    return NextResponse.json({
-      ok: true,
-      source: benchmark.source,
-      usdt: desk.USDT,
-      at: new Date().toISOString(),
-    });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Sync failed" },
-      { status: 502 },
-    );
+  const result = await syncDeskRatesFromMarket();
+  if (!result.ok) {
+    log.warn("cron: rate sync failed", { error: result.error });
+    return NextResponse.json({ error: result.error }, { status: result.status });
   }
+  await writeAudit("cron.rates_sync", { meta: { source: result.data.source } });
+  return NextResponse.json({
+    ok: true,
+    source: result.data.source,
+    usdt: result.data.desk.USDT,
+    at: new Date().toISOString(),
+  });
 }

@@ -1,7 +1,19 @@
-import { createHash, createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { createHash, createHmac, createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "crypto";
 
 export function sha256(input: string): string {
   return createHash("sha256").update(input).digest("hex");
+}
+
+/** Constant-time string compare (secrets, signatures). */
+export function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
+export function hmacHex(algorithm: "sha256" | "sha512", key: string, payload: string): string {
+  return createHmac(algorithm, key).update(payload).digest("hex");
 }
 
 function getEncryptionKey(): Buffer {

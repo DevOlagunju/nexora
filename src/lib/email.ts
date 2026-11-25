@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto";
+import { errorMessage, log } from "@/lib/log";
 
 export function appBaseUrl() {
   const explicit = process.env.NEXT_PUBLIC_APP_URL?.trim() || process.env.APP_URL?.trim();
@@ -17,11 +18,16 @@ export async function sendEmail(input: {
   const from = process.env.NOTIFY_FROM_EMAIL?.trim();
 
   if (!emailKey || !from) {
-    console.info("[email] RESEND not configured — message logged only", {
-      to: input.to,
-      subject: input.subject,
-      text: input.text,
-    });
+    // Body may contain a reset link: only print it outside production.
+    if (process.env.NODE_ENV === "production") {
+      log.warn("email: RESEND not configured, message dropped", { subject: input.subject });
+    } else {
+      console.info("[email] RESEND not configured - message logged only", {
+        to: input.to,
+        subject: input.subject,
+        text: input.text,
+      });
+    }
     return { ok: true, logged: true };
   }
 
@@ -39,15 +45,16 @@ export async function sendEmail(input: {
         text: input.text,
         ...(input.html ? { html: input.html } : {}),
       }),
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      console.error("[email] Resend error", res.status, body);
+      log.error("email: Resend error", { status: res.status, body: body.slice(0, 300) });
       return { ok: false };
     }
     return { ok: true };
   } catch (err) {
-    console.error("[email] send failed", err);
+    log.error("email: send failed", { error: errorMessage(err) });
     return { ok: false };
   }
 }

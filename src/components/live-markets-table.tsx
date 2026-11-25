@@ -56,7 +56,8 @@ export function LiveMarketsTable({ initial }: { initial: MarketRow[] }) {
   }, []);
 
   useEffect(() => {
-    void refresh(true);
+    // Server render supplies `initial`; only fetch immediately when it is empty.
+    const first = initial.length ? undefined : window.setTimeout(() => void refresh(true), 0);
 
     const id = window.setInterval(() => void refresh(true), POLL_MS);
 
@@ -67,11 +68,12 @@ export function LiveMarketsTable({ initial }: { initial: MarketRow[] }) {
     window.addEventListener("focus", onVisible);
 
     return () => {
+      if (first) window.clearTimeout(first);
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
-  }, [refresh]);
+  }, [refresh, initial.length]);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-[0_12px_40px_rgba(7,16,24,0.06)]">

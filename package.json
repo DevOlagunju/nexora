@@ -10,7 +10,18 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
-    "db:backup": "node scripts/backup-db.mjs"
+    "db:backup": "node scripts/backup-db.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "db:deploy": "prisma migrate deploy",
+    "admin:password": "tsx scripts/set-admin-password.ts",
+    "admin:role": "tsx scripts/set-staff-role.ts",
+    "ledger:check": "tsx --conditions=react-server scripts/ledger-check.mts",
+    "smoke": "node scripts/smoke.mjs",
+    "secrets:generate": "node -e \"const c=require('crypto');console.log('AUTH_SECRET='+c.randomBytes(48).toString('base64url'));console.log('ENCRYPTION_KEY='+c.randomBytes(32).toString('hex'));console.log('CRON_SECRET='+c.randomBytes(32).toString('base64url'))\"",
+    "db:seed-demo": "tsx scripts/seed-demo.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -44,6 +55,10 @@
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=20.19"
   }
 }

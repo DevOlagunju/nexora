@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { receiveAddressProblem } from "@/lib/wallet-rules";
+
+/** Sell proceeds: Nexora wallet (default, withdraw any time) or straight to the KYC bank account. */
+const payoutMethod = z.enum(["WALLET", "BANK"]).default("WALLET");
 
 export const registerSchema = z.object({
   fullName: z.string().trim().min(2).max(80),
@@ -14,6 +18,13 @@ export const registerSchema = z.object({
     .regex(/[A-Z]/, "Include an uppercase letter")
     .regex(/[a-z]/, "Include a lowercase letter")
     .regex(/[0-9]/, "Include a number"),
+  referralCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .max(16)
+    .optional()
+    .transform((v) => (v ? v : undefined)),
 });
 
 export const loginSchema = z.object({
@@ -59,32 +70,59 @@ export const resetPasswordSchema = z
     path: ["confirmPassword"],
   });
 
-export const kycSchema = z.object({
-  bvn: z.string().regex(/^\d{11}$/, "BVN must be 11 digits"),
-  nin: z.string().regex(/^\d{11}$/, "NIN must be 11 digits"),
-  bankName: z.string().trim().min(2).max(80),
-  accountNumber: z.string().regex(/^\d{10}$/, "Account number must be 10 digits"),
-  accountName: z.string().trim().min(2).max(80),
+export const kycSchema = z
+  .object({
+    bvn: z.string().regex(/^\d{11}$/, "BVN must be 11 digits"),
+    nin: z.string().regex(/^\d{11}$/, "NIN must be 11 digits"),
+    /** Preferred: bank picked from the list; the account name is then looked up, not typed. */
+    bankCode: z.string().trim().regex(/^\d{3,6}$/, "Pick your bank from the list").optional(),
+    bankName: z.string().trim().min(2).max(80).optional(),
+    accountNumber: z.string().regex(/^\d{10}$/, "Account number must be 10 digits"),
+    accountName: z.string().trim().min(2).max(80).optional(),
+  })
+  .refine((d) => d.bankCode || (d.bankName && d.accountName), {
+    message: "Pick your bank and enter your account number",
+    path: ["bankCode"],
+  });
+
+export const bankLookupSchema = z.object({
+  bankCode: z.string().trim().regex(/^\d{3,6}$/, "Pick your bank from the list"),
+  accountNumber: z.string().trim().regex(/^\d{10}$/, "Account number must be 10 digits"),
 });
 
 export const cryptoSellSchema = z.object({
   symbol: z.enum(["USDT", "BTC", "ETH"]),
   amountCrypto: z.coerce.number().positive(),
   txHash: z.string().trim().max(120).optional(),
+  payoutMethod,
 });
 
-export const cryptoBuySchema = z.object({
-  symbol: z.enum(["USDT", "BTC", "ETH"]),
-  amountCrypto: z.coerce.number().positive(),
-  userReceiveAddress: z.string().trim().min(10).max(120),
-  paymentRef: z.string().trim().max(120).optional(),
-});
+export const cryptoBuySchema = z
+  .object({
+    symbol: z.enum(["USDT", "BTC", "ETH"]),
+    amountCrypto: z.coerce.number().positive(),
+    userReceiveAddress: z.string().trim().min(10, "Enter your wallet address").max(120),
+    paymentRef: z
+      .string()
+      .trim()
+      .max(120)
+      // "wallet:" is reserved for money Nexora already holds; it drives refunds.
+      .refine((v) => !v.toLowerCase().startsWith("wallet:"), "Enter your bank transfer reference.")
+      .optional(),
+    /** BANK: manual transfer to the desk. WALLET: debit the Nexora wallet now. CARD: gateway checkout, confirmed instantly. */
+    payFrom: z.enum(["BANK", "WALLET", "CARD"]).default("BANK"),
+  })
+  .superRefine((d, ctx) => {
+    const problem = receiveAddressProblem(d.symbol, d.userReceiveAddress);
+    if (problem) ctx.addIssue({ code: "custom", path: ["userReceiveAddress"], message: problem });
+  });
 
 export const giftCardSellSchema = z.object({
   brand: z.enum(["APPLE", "STEAM", "AMAZON", "GOOGLE"]),
   country: z.string().trim().min(2).max(40).default("USA"),
   faceValueUsd: z.coerce.number().positive(),
   cardCode: z.string().trim().min(6).max(120),
+  payoutMethod,
 });
 
 export const rateUpdateSchema = z.object({

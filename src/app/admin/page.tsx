@@ -6,13 +6,19 @@ import {
   updateGiftOrderAction,
   updateRateAction,
   updateWalletAction,
+  processWithdrawalAction,
+  verifyOrderPayoutAction,
 } from "@/app/actions";
+import { isPayoutLock } from "@/lib/payout-rules";
+import { staffRoleLabel } from "@/lib/permissions";
 import { getSessionUser } from "@/lib/auth";
 import { maskSecret } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
-import { STATUS_LABEL } from "@/lib/security";
+import { STATUS_LABEL, allowedNextStatuses } from "@/lib/order-status";
 import { StatusPill } from "@/components/status-pill";
 import { formatNgn } from "@/lib/format";
+import { sumNgn } from "@/lib/money";
+import { paystackConfigured } from "@/lib/paystack";
 import { ActionForm } from "@/components/action-form";
 import { DeskFlow } from "@/components/desk-flow";
 import { RevealGiftCode } from "@/components/reveal-gift-code";
@@ -31,7 +37,7 @@ export default async function AdminPage() {
   if (!user) redirect("/login");
   if (user.role !== "ADMIN") redirect("/dashboard");
 
-  const [rates, wallets, pendingKyc, cryptoOrdersRaw, giftOrdersRaw] = await Promise.all([
+  const [rates, wallets, pendingKyc, cryptoOrdersRaw, giftOrdersRaw, withdrawals] = await Promise.all([
     prisma.rate.findMany({ orderBy: { sortOrder: "asc" } }),
     prisma.platformWallet.findMany({ orderBy: { symbol: "asc" } }),
     prisma.kycProfile.findMany({
@@ -53,7 +59,15 @@ export default async function AdminPage() {
       orderBy: { createdAt: "desc" },
       take: 30,
     }),
+    prisma.withdrawal.findMany({
+      where: { status: { in: ["PENDING", "PROCESSING"] } },
+      include: { user: { select: { fullName: true, email: true } } },
+      orderBy: { createdAt: "asc" },
+      take: 50,
+    }),
   ]);
+  const withdrawalTotal = sumNgn(withdrawals.map((w) => w.amountNgn));
+  const canPaystack = paystackConfigured();
 
   const cryptoOrders = [...cryptoOrdersRaw].sort(
     (a, b) => priorityIndex(a.status, CRYPTO_PRIORITY) - priorityIndex(b.status, CRYPTO_PRIORITY),
@@ -77,7 +91,8 @@ export default async function AdminPage() {
         <p className="section-label">Operations</p>
         <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-bold">Admin desk</h1>
         <p className="mt-2 max-w-2xl text-sm text-ink-soft">
-          Work the queue in order. Keep rates current, then clear KYC and payouts.
+          Work the queue in order. Keep rates current, then clear KYC and payouts. You are signed in as{" "}
+          <strong>{staffRoleLabel(user)}</strong>; actions outside that role are refused and logged.
         </p>
         <DeskFlow
           title="Daily desk flow"
@@ -90,7 +105,14 @@ export default async function AdminPage() {
           ]}
         />
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <a href="#withdrawals" className="panel block transition hover:border-accent">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Withdrawals</p>
+            <p className="mt-1 font-[family-name:var(--font-display)] text-3xl font-bold text-ink">
+              {withdrawals.length}
+            </p>
+            {withdrawals.length > 0 && <p className="text-xs text-ink-soft">{formatNgn(withdrawalTotal)} owed</p>}
+          </a>
           <a href="#kyc" className="panel block transition hover:border-accent">
             <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">KYC queue</p>
             <p className="mt-1 font-[family-name:var(--font-display)] text-3xl font-bold text-ink">
@@ -120,6 +142,7 @@ export default async function AdminPage() {
         <nav className="dash-nav mt-8" aria-label="Admin sections">
           <a href="#rates">Rates</a>
           <a href="#wallets">Wallets</a>
+          <a href="#withdrawals">Withdrawals</a>
           <a href="#kyc">KYC</a>
           <a href="#crypto">Crypto</a>
           <a href="#gift">Gift cards</a>
@@ -241,6 +264,87 @@ export default async function AdminPage() {
           </div>
         </section>
 
+        <section id="withdrawals" className="mt-14 scroll-mt-24">
+          <p className="section-label">Wallet</p>
+          <h2 className="mt-1 font-[family-name:var(--font-display)] text-2xl font-bold">Withdrawal queue</h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Oldest first. Paid only to the customer&apos;s KYC bank account. Rejecting refunds the full amount and
+            fee to their wallet.
+          </p>
+          {withdrawals.length === 0 ? (
+            <p className="ops-hint mt-4">No withdrawals waiting.</p>
+          ) : (
+            <div className="mt-4 space-y-4">
+              {withdrawals.map((w) => (
+                <article key={w.id} className="panel text-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-ink">
+                        {formatNgn(w.amountNgn)} · {w.user.fullName}
+                      </p>
+                      <p className="text-xs text-ink-soft">
+                        {w.reference} · {w.user.email} ·{" "}
+                        {w.createdAt.toLocaleString("en-NG", { timeZone: "Africa/Lagos" })}
+                      </p>
+                    </div>
+                    <StatusPill status={w.status} />
+                  </div>
+                  <div className="ops-hint mt-3 break-all">
+                    Pay {formatNgn(w.amountNgn)} to {w.accountName} · {w.bankName} · {w.accountNumber}
+                    {w.payoutRef && !isPayoutLock(w.payoutRef) ? <> · transfer {w.payoutRef}</> : null}
+                  </div>
+                  {w.status === "PROCESSING" && isPayoutLock(w.payoutRef) && (
+                    <p className="ops-hint mt-3 text-amber-950">
+                      Paystack has not confirmed this transfer. Verify it before paying by hand, or the customer
+                      could be paid twice.
+                    </p>
+                  )}
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    {w.status === "PROCESSING" && canPaystack && (
+                      <ActionForm
+                        action={processWithdrawalAction}
+                        submitLabel="Verify with Paystack"
+                        resetOnSuccess={false}
+                      >
+                        <input type="hidden" name="id" value={w.id} />
+                        <input type="hidden" name="action" value="verify" />
+                      </ActionForm>
+                    )}
+                    {w.status === "PENDING" && canPaystack && (
+                      <ActionForm action={processWithdrawalAction} submitLabel="Pay via Paystack" resetOnSuccess={false}>
+                        <input type="hidden" name="id" value={w.id} />
+                        <input type="hidden" name="action" value="paystack" />
+                      </ActionForm>
+                    )}
+                    <ActionForm
+                      action={processWithdrawalAction}
+                      submitLabel="Mark paid"
+                      submitVariant="dark"
+                      resetOnSuccess={false}
+                    >
+                      <input type="hidden" name="id" value={w.id} />
+                      <input type="hidden" name="action" value="mark-paid" />
+                      <input className="input" name="payoutRef" placeholder="Bank transfer ref" required />
+                    </ActionForm>
+                    {w.status === "PENDING" && (
+                      <ActionForm
+                        action={processWithdrawalAction}
+                        submitLabel="Reject and refund"
+                        submitVariant="danger"
+                        resetOnSuccess={false}
+                      >
+                        <input type="hidden" name="id" value={w.id} />
+                        <input type="hidden" name="action" value="reject" />
+                        <input className="input" name="note" placeholder="Reason shown to customer" required />
+                      </ActionForm>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
         <section id="kyc" className="mt-14 scroll-mt-24">
           <div className="flex flex-wrap items-center gap-3">
             <div>
@@ -271,6 +375,16 @@ export default async function AdminPage() {
                   BVN ****{k.bvnLast4} · NIN ****{k.ninLast4}
                   <br />
                   {k.bankName} {k.accountNumber} ({k.accountName})
+                  <br />
+                  {k.accountVerified ? (
+                    <span className="font-semibold text-accent-deep">✓ Account name confirmed by the bank</span>
+                  ) : (
+                    <span className="text-ink-soft">Account name typed by the customer (not bank-verified)</span>
+                  )}
+                  {k.nameMatch === true && <span className="text-accent-deep"> · matches their Nexora name</span>}
+                  {k.nameMatch === false && (
+                    <span className="font-semibold text-danger"> · ⚠ name differs from their Nexora name, check before approving</span>
+                  )}
                 </div>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <ActionForm action={reviewKycAction} submitLabel="Approve KYC">
@@ -335,7 +449,9 @@ export default async function AdminPage() {
                   <div className="ops-hint mt-4 break-all">
                     TX: {o.txHash ? maskSecret(o.txHash, 8) : "N/A"}
                     <br />
-                    Pay to {o.bankName} {o.accountNumber}
+                    {o.payoutMethod === "WALLET"
+                      ? "Payout: Nexora wallet (credited when you set Completed)"
+                      : `Pay to ${o.bankName} ${o.accountNumber}`}
                     {o.depositAddress ? (
                       <>
                         <br />
@@ -345,7 +461,9 @@ export default async function AdminPage() {
                   </div>
                 ) : (
                   <div className="ops-hint mt-4 break-all">
-                    Payment ref: {o.paymentRef ?? "N/A"}
+                    {o.paymentRef?.startsWith("wallet:")
+                      ? "Paid from Nexora wallet (funds already debited)"
+                      : `Payment ref: ${o.paymentRef ?? "N/A"}`}
                     <br />
                     Send crypto to {o.userReceiveAddress}
                     <br />
@@ -364,14 +482,7 @@ export default async function AdminPage() {
                     <label>
                       Status
                       <select className="input mt-1" name="status" defaultValue={o.status}>
-                        {[
-                          "AWAITING_DEPOSIT",
-                          "UNDER_REVIEW",
-                          "APPROVED",
-                          "PAYOUT_SENT",
-                          "COMPLETED",
-                          "REJECTED",
-                        ].map((s) => (
+                        {allowedNextStatuses(o.status).map((s) => (
                           <option key={s} value={s}>
                             {STATUS_LABEL[s]}
                           </option>
@@ -387,13 +498,9 @@ export default async function AdminPage() {
                       <input className="input mt-1" name="adminNote" defaultValue={o.adminNote ?? ""} />
                     </label>
                   </div>
-                  {o.side === "SELL" && (
-                    <label className="mt-3 flex items-center gap-2 text-sm">
-                      <input type="checkbox" name="triggerPayout" value="true" />
-                      Trigger Paystack NGN payout (sets PAYOUT_SENT)
-                    </label>
-                  )}
+                  <PayoutHint side={o.side} method={o.payoutMethod} status={o.status} />
                 </ActionForm>
+                <VerifyPayout channel="crypto" id={o.id} status={o.status} payoutRef={o.payoutRef} enabled={canPaystack} />
               </article>
             ))}
           </div>
@@ -458,13 +565,13 @@ export default async function AdminPage() {
                       <label>
                         Status
                         <select className="input mt-1" name="status" defaultValue={o.status}>
-                          {["UNDER_REVIEW", "APPROVED", "PAYOUT_SENT", "COMPLETED", "REJECTED"].map(
-                            (s) => (
+                          {allowedNextStatuses(o.status)
+                            .filter((s) => s !== "AWAITING_DEPOSIT")
+                            .map((s) => (
                               <option key={s} value={s}>
                                 {STATUS_LABEL[s]}
                               </option>
-                            ),
-                          )}
+                            ))}
                         </select>
                       </label>
                       <label>
@@ -484,11 +591,9 @@ export default async function AdminPage() {
                         />
                       </label>
                     </div>
-                    <label className="mt-3 flex items-center gap-2 text-sm">
-                      <input type="checkbox" name="triggerPayout" value="true" />
-                      Trigger Paystack NGN payout (sets PAYOUT_SENT)
-                    </label>
+                    <PayoutHint side="SELL" method={o.payoutMethod} status={o.status} />
                   </ActionForm>
+                  <VerifyPayout channel="gift" id={o.id} status={o.status} payoutRef={o.payoutRef} enabled={canPaystack} />
                 </article>
               );
             })}
@@ -497,5 +602,55 @@ export default async function AdminPage() {
       </main>
       <SiteFooter />
     </>
+  );
+}
+
+/** Shown while a Paystack payout is unconfirmed (lock held) or waiting on its webhook (Payout sent). */
+function VerifyPayout({
+  channel,
+  id,
+  status,
+  payoutRef,
+  enabled,
+}: {
+  channel: "crypto" | "gift";
+  id: string;
+  status: string;
+  payoutRef: string | null;
+  enabled: boolean;
+}) {
+  const locked = isPayoutLock(payoutRef);
+  if (!enabled || (!locked && !(status === "PAYOUT_SENT" && payoutRef?.startsWith("TRF_")))) return null;
+  return (
+    <div className="mt-4 border-t border-[var(--line)] pt-4">
+      {locked && (
+        <p className="ops-hint mb-3 text-amber-950">
+          Paystack has not confirmed this payout. Verify it before paying by hand, or the customer could be paid
+          twice. The order cannot be changed until it is verified.
+        </p>
+      )}
+      <ActionForm action={verifyOrderPayoutAction} submitLabel="Verify payout with Paystack" resetOnSuccess={false}>
+        <input type="hidden" name="id" value={id} />
+        <input type="hidden" name="channel" value={channel} />
+      </ActionForm>
+    </div>
+  );
+}
+
+/** Payout control for a desk row: Paystack checkbox only for bank payouts that are still payable. */
+function PayoutHint({ side, method, status }: { side: string; method: string; status: string }) {
+  if (side !== "SELL" || !["UNDER_REVIEW", "APPROVED"].includes(status)) return null;
+  if (method === "WALLET") {
+    return (
+      <p className="mt-3 text-xs text-ink-soft">
+        Wallet payout: choose <strong>Completed</strong> to credit the customer&apos;s Nexora wallet instantly.
+      </p>
+    );
+  }
+  return (
+    <label className="mt-3 flex items-center gap-2 text-sm">
+      <input type="checkbox" name="triggerPayout" value="true" />
+      Trigger Paystack NGN payout (sets PAYOUT_SENT)
+    </label>
   );
 }
