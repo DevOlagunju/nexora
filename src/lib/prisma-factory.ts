@@ -70,6 +70,11 @@ export function createPrismaClient(url = process.env.DATABASE_URL ?? "") {
         feeNgn: { needs: { feeNgn: true }, compute: (r) => n(r.feeNgn) },
         amountNgn: { needs: { amountNgn: true }, compute: (r) => n(r.amountNgn) },
       },
+      giftCardRate: {
+        rateNgn: { needs: { rateNgn: true }, compute: (r) => n(r.rateNgn) },
+        minFaceUsd: { needs: { minFaceUsd: true }, compute: (r) => n(r.minFaceUsd) },
+        maxFaceUsd: { needs: { maxFaceUsd: true }, compute: (r) => nOrNull(r.maxFaceUsd) },
+      },
       ledgerAccount: {
         balance: { needs: { balance: true }, compute: (r) => n(r.balance) },
       },

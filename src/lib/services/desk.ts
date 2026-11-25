@@ -554,6 +554,21 @@ export async function updateRate(
   const before = await prisma.rate.findUnique({ where: { id: parsed.data.id } });
   if (!before) return fail("Rate not found.", 404);
 
+  // A gift card brand's price comes from its variants (Gift card rates); here it can only be
+  // switched on or off. Its headline rate follows the brand's default variant.
+  if (before.kind === "GIFTCARD") {
+    const isActive = parsed.data.isActive ?? true;
+    await prisma.rate.update({ where: { id: before.id }, data: { isActive } });
+    await writeAudit("admin.rate_update", {
+      userId: admin.id,
+      meta: { symbol: before.symbol, kind: "GIFTCARD", from: { active: before.isActive }, to: { active: isActive } },
+    });
+    return ok(null, `${before.displayName} switched ${isActive ? "on" : "off"}. Set its prices under Gift card rates.`);
+  }
+  if (parsed.data.sellRateNgn === undefined || parsed.data.buyRateNgn === undefined) {
+    return fail("Enter both the sell and buy rate.");
+  }
+
   await prisma.rate.update({
     where: { id: parsed.data.id },
     data: {

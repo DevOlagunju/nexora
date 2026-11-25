@@ -7,6 +7,8 @@ import { mulNgn } from "@/lib/money";
 import { quoteConfig, quoteExpiry, quoteStatus, rateIsStale, secondsLeft, type QuoteStatus } from "@/lib/quote-rules";
 import { fail, ok, TOO_MANY, type ServiceResult } from "@/lib/services/result";
 import { assetTradable } from "@/lib/services/assets";
+import { resolveGiftVariant } from "@/lib/services/giftcards";
+import { faceValueProblem } from "@/lib/giftcard-rules";
 
 /**
  * Quotes: a locked price with an expiry.
@@ -34,6 +36,9 @@ const quoteSchema = z.object({
     .max(40)
     .transform((s) => s.toUpperCase()),
   amount: z.coerce.number().positive().finite(),
+  /** Gift cards only: the country the card is from and its type. Missing: the brand's default. */
+  country: z.string().trim().max(40).optional(),
+  cardType: z.string().trim().max(20).optional(),
 });
 
 export type QuoteView = {
@@ -53,6 +58,9 @@ export type QuoteView = {
   secondsLeft: number;
   status: QuoteStatus;
   orderReference: string | null;
+  /** Gift cards: the variant that was priced. Null for crypto. */
+  country: string | null;
+  cardType: "ECODE" | "PHYSICAL" | null;
 };
 
 type QuoteRow = NonNullable<Awaited<ReturnType<typeof prisma.quote.findFirst>>>;
@@ -74,7 +82,42 @@ function view(q: QuoteRow, now = new Date()): QuoteView {
     secondsLeft: q.acceptedAt ? 0 : secondsLeft(q, now),
     status: quoteStatus(q, now),
     orderReference: q.orderReference,
+    country: q.country,
+    cardType: q.cardType,
   };
+}
+
+type Priced = {
+  rateNgn: number;
+  rateUpdatedAt: Date;
+  country?: string;
+  cardType?: "ECODE" | "PHYSICAL";
+};
+
+/** The rate a quote is taken from, after every check that the trade is possible. */
+async function priceFor(
+  kind: "CRYPTO" | "GIFTCARD",
+  side: "SELL" | "BUY",
+  symbol: string,
+  amount: number,
+  variant: { country?: string; cardType?: string },
+): Promise<ServiceResult<Priced>> {
+  if (kind === "GIFTCARD") {
+    if (side !== "SELL") return fail("Gift cards can only be sold.");
+    const v = await resolveGiftVariant(symbol, variant);
+    if (!v.ok) return v;
+    const faceIssue = faceValueProblem(v.data, amount);
+    if (faceIssue) return fail(faceIssue, 422);
+    return ok({ rateNgn: v.data.rateNgn, rateUpdatedAt: v.data.updatedAt, country: v.data.country, cardType: v.data.cardType });
+  }
+
+  const rate = await prisma.rate.findUnique({ where: { kind_symbol: { kind, symbol } } });
+  if (!rate || !rate.isActive) return fail("This asset is not available right now.");
+  // Never promise a price for crypto that cannot move on any network in this direction.
+  if (!(await assetTradable(symbol, side))) return fail("This asset is not available right now.");
+  if (amount < rate.minAmount) return fail(`Minimum is ${rate.minAmount} ${rate.symbol}.`);
+  if (rate.maxAmount && amount > rate.maxAmount) return fail(`Maximum is ${rate.maxAmount} ${rate.symbol}.`);
+  return ok({ rateNgn: side === "SELL" ? rate.sellRateNgn : rate.buyRateNgn, rateUpdatedAt: rate.updatedAt });
 }
 
 export async function createQuote(user: Actor, input: unknown, ctx: Ctx): Promise<ServiceResult<QuoteView>> {
@@ -83,26 +126,17 @@ export async function createQuote(user: Actor, input: unknown, ctx: Ctx): Promis
   const parsed = quoteSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
   const { kind, side, symbol, amount } = parsed.data;
-  if (kind === "GIFTCARD" && side !== "SELL") return fail("Gift cards can only be sold.");
 
-  const rate = await prisma.rate.findUnique({ where: { kind_symbol: { kind, symbol } } });
-  if (!rate || !rate.isActive) {
-    return fail(kind === "CRYPTO" ? "This asset is not available right now." : "This gift card is not available right now.");
-  }
-  // Never promise a price for crypto that cannot move on any network in this direction.
-  if (kind === "CRYPTO" && !(await assetTradable(symbol, side))) return fail("This asset is not available right now.");
-  const unit = kind === "CRYPTO" ? ` ${rate.symbol}` : " USD face value";
-  if (amount < rate.minAmount) return fail(`Minimum is ${rate.minAmount}${unit}.`);
-  if (rate.maxAmount && amount > rate.maxAmount) return fail(`Maximum is ${rate.maxAmount}${unit}.`);
+  const priced = await priceFor(kind, side, symbol, amount, { country: parsed.data.country, cardType: parsed.data.cardType });
+  if (!priced.ok) return priced;
+  const { rateNgn, rateUpdatedAt, country, cardType } = priced.data;
 
   const cfg = quoteConfig();
   const now = new Date();
-  if (rateIsStale(kind, rate.updatedAt, cfg, now)) {
+  if (rateIsStale(kind, rateUpdatedAt, cfg, now)) {
     // Never promise a price from a rate nobody has refreshed.
     return fail("Rates are being updated. Please try again in a moment.", 503);
   }
-
-  const rateNgn = side === "SELL" ? rate.sellRateNgn : rate.buyRateNgn;
   if (!(rateNgn > 0)) return fail("This asset is not available right now.");
   const amountNgn = mulNgn(amount, rateNgn);
   if (!(amountNgn > 0)) return fail("That amount is too small to trade.");
@@ -118,14 +152,16 @@ export async function createQuote(user: Actor, input: unknown, ctx: Ctx): Promis
       rateNgn,
       amountNgn,
       rateSource: "desk",
-      rateUpdatedAt: rate.updatedAt,
+      rateUpdatedAt,
       expiresAt: quoteExpiry(cfg, now),
+      country,
+      cardType,
     },
   });
   await writeAudit("quote.create", {
     userId: user.id,
     ip: ctx.ip,
-    meta: { reference: quote.reference, kind, side, symbol, amount, rateNgn, amountNgn, expiresAt: quote.expiresAt },
+    meta: { reference: quote.reference, kind, side, symbol, amount, rateNgn, amountNgn, country, cardType, expiresAt: quote.expiresAt },
   });
   return ok(view(quote, now));
 }
@@ -135,7 +171,15 @@ export async function getQuote(user: Actor, id: string): Promise<ServiceResult<Q
   return quote ? ok(view(quote)) : fail("Quote not found.", 404);
 }
 
-export type LockedQuote = { id: string; symbol: string; amount: number; rateNgn: number; amountNgn: number };
+export type LockedQuote = {
+  id: string;
+  symbol: string;
+  amount: number;
+  rateNgn: number;
+  amountNgn: number;
+  country: string | null;
+  cardType: "ECODE" | "PHYSICAL" | null;
+};
 
 const GONE = "This quote has expired or was already used. Get a new quote.";
 
@@ -159,7 +203,15 @@ export async function quoteForOrder(
     return fail("This quote is for a different kind of trade.", 422);
   }
   if (quoteStatus(quote) !== "OPEN") return fail(GONE, 409);
-  return ok({ id: quote.id, symbol: quote.symbol, amount: quote.amount, rateNgn: quote.rateNgn, amountNgn: quote.amountNgn });
+  return ok({
+    id: quote.id,
+    symbol: quote.symbol,
+    amount: quote.amount,
+    rateNgn: quote.rateNgn,
+    amountNgn: quote.amountNgn,
+    country: quote.country,
+    cardType: quote.cardType,
+  });
 }
 
 /** Thrown inside an order's transaction when the quote can no longer be used; rolls the order back. */

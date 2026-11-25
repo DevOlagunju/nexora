@@ -248,7 +248,10 @@ model GiftCardOrder {
   reference          String      @unique
   userId             String
   brand              String
-  country            String      @default("USA")
+  /// ISO 3166 alpha-2 for orders since the gift card rates migration (older rows were converted).
+  country            String      @default("US")
+  /// Null on orders placed before card types existed.
+  cardType           GiftCardType?
   faceValueUsd       Decimal @db.Decimal(12, 2)
   rateNgn            Decimal @db.Decimal(18, 4)
   amountNgn          Decimal @db.Decimal(18, 2)
@@ -481,6 +484,9 @@ model Quote {
   symbol         String
   /// Crypto quantity, or gift card face value in USD.
   amount         Decimal   @db.Decimal(36, 18)
+  /// Gift cards only: the variant the price was taken from.
+  country        String?
+  cardType       GiftCardType?
   /// The locked rate, in Naira per unit.
   rateNgn        Decimal   @db.Decimal(18, 4)
   feeNgn         Decimal   @default(0) @db.Decimal(18, 2)
@@ -553,4 +559,39 @@ model AssetNetwork {
 
   @@unique([symbol, networkId])
   @@index([symbol])
+}
+
+// ---------------------------------------------------------------- gift card rates
+
+enum GiftCardType {
+  /// A code sent by email or shown in an app.
+  ECODE
+  /// A plastic card; the code is on the back.
+  PHYSICAL
+}
+
+/// The desk's price for one brand, from one country, of one card type, per US dollar of face
+/// value. The brand itself (name, on/off) stays on Rate; this decides what each variant pays.
+model GiftCardRate {
+  id            String       @id @default(cuid())
+  /// Matches Rate.symbol for kind GIFTCARD.
+  brand         String
+  /// ISO 3166 alpha-2 country the card was issued in, e.g. "US", "GB".
+  country       String
+  cardType      GiftCardType
+  /// Naira per US dollar of face value.
+  rateNgn       Decimal      @db.Decimal(18, 4)
+  minFaceUsd    Decimal      @db.Decimal(12, 2)
+  maxFaceUsd    Decimal?     @db.Decimal(12, 2)
+  /// Allowed face values, comma separated (e.g. "25,50,100"). Empty means any value in range.
+  denominations String?
+  isActive      Boolean      @default(true)
+  /// The variant used when a request names no country or card type. One per brand. The brand's
+  /// headline rate on Rate is kept equal to this variant's.
+  isDefault     Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([brand, country, cardType])
+  @@index([brand])
 }

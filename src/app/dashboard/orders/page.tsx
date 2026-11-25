@@ -4,6 +4,7 @@ import { activeGatewayName } from "@/lib/payments/gateway";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { formatNgn } from "@/lib/format";
+import { countryName } from "@/lib/giftcard-rules";
 import { isFailedOrderStatus } from "@/lib/support";
 import { ActionForm } from "@/components/action-form";
 import { ContactSupport } from "@/components/contact-support";
@@ -130,7 +131,7 @@ export default async function OrdersPage() {
             <article key={o.id} id={`order-${o.id}`} className="panel order-anchor text-sm">
               <p className="font-semibold">{o.reference}</p>
               <p className="text-ink-soft">
-                {o.brand} · ${o.faceValueUsd} · {o.country}
+                {o.brand} · ${o.faceValueUsd} · {countryName(o.country)}
                 <span className="mx-1.5 text-[var(--line)]">·</span>
                 <span className="font-medium tabular-nums text-accent-deep">
                   {formatNgn(o.amountNgn)}

@@ -108,7 +108,7 @@ async function main() {
         reference: orderReference("NXG"),
         userId: demo.id,
         brand,
-        country: "USA",
+        country: "US",
         faceValueUsd: face,
         rateNgn: rate,
         amountNgn: face * rate,

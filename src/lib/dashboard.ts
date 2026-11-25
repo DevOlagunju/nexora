@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/db";
+import { countryName } from "@/lib/giftcard-rules";
 import { addNgn, numberFrom } from "@/lib/money";
 import { getDailyUsage } from "@/lib/trade-limits";
 import { platformBankDetails } from "@/lib/platform-bank";
@@ -79,7 +80,7 @@ export function buildActivity(
       kind: "gift" as const,
       reference: o.reference,
       title: `${o.brand.charAt(0)}${o.brand.slice(1).toLowerCase()} gift card · $${o.faceValueUsd}`,
-      subtitle: `${o.reference} · ${o.country}`,
+      subtitle: `${o.reference} · ${countryName(o.country)}`,
       amountNgn: o.amountNgn,
       status: o.status,
       createdAt: o.createdAt,

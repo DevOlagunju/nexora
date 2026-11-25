@@ -70,13 +70,13 @@ Required on: `POST /crypto/orders`, `POST /crypto/orders/:id/checkout`, `POST /g
 |---|---|---|
 | GET | `/assets` | Tradable crypto assets: `network` (the default) and `networks` (each with `sell`, `buy`, `confirmations`) |
 | GET | `/rates?kind=CRYPTO\|GIFTCARD` | Desk rates with `updatedAt` |
-| GET | `/giftcards/brands` | Brands and Naira rate per $1 |
+| GET | `/giftcards/brands` | Brands and their `variants` (country, `cardType`, Naira rate per $1, limits, accepted values, `isDefault`) |
 
 **Quotes** (a locked price)
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/quotes` | `{ kind: "CRYPTO" \| "GIFTCARD", side: "SELL" \| "BUY", symbol, amount }` → rate, `amountNgn`, `expiresAt`, `secondsLeft` |
+| POST | `/quotes` | `{ kind: "CRYPTO" \| "GIFTCARD", side: "SELL" \| "BUY", symbol, amount, country?, cardType? }` → rate, `amountNgn`, `expiresAt`, `secondsLeft`. `country` and `cardType` apply to gift cards. |
 | GET | `/quotes/:id` | Status: `OPEN`, `ACCEPTED` or `EXPIRED` |
 
 To trade at the quoted price, create the order with `quoteId` before it expires. The order
@@ -98,7 +98,7 @@ Orders can still be created without a quote; they are priced at the desk rate of
 | PATCH | `/crypto/orders/:id` | One of `{ txHash }`, `{ paymentRef }`, `{ status: "CANCELLED" }` |
 | POST | `/crypto/orders/:id/checkout` | Card checkout for an unpaid buy order. Idempotent. |
 | GET | `/giftcards/orders` | The card code is never returned |
-| POST | `/giftcards/orders` | Idempotent |
+| POST | `/giftcards/orders` | `{ brand, country?, cardType?, faceValueUsd, cardCode, payoutMethod }`. Priced by the brand + country + card type variant; missing values use the brand's default. Idempotent. |
 | GET | `/giftcards/orders/:id` | |
 
 **Wallet**

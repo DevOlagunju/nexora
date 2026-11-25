@@ -25,6 +25,9 @@ beforeAll(async () => {
       { kind: "CRYPTO", symbol: "ETH", displayName: "Ether", sellRateNgn: 4_000_000, buyRateNgn: 4_050_000, minAmount: 0.01, updatedAt: new Date(Date.now() - 2 * 24 * 3_600_000) },
     ],
   });
+  await prisma.giftCardRate.create({
+    data: { brand: "AMAZON", country: "US", cardType: "ECODE", rateNgn: 1210.5, minFaceUsd: 25, maxFaceUsd: 500, isDefault: true },
+  });
   const net = async (code: string) => (await prisma.blockchainNetwork.findUniqueOrThrow({ where: { code } })).id;
   await prisma.assetNetwork.createMany({
     data: [
