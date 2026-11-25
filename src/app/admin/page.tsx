@@ -9,11 +9,15 @@ import {
   processWithdrawalAction,
   verifyOrderPayoutAction,
   addAssetNetworkAction,
+  updateGiftCardRateAction,
+  addGiftCardRateAction,
 } from "@/app/actions";
 import { isPayoutLock } from "@/lib/payout-rules";
 import { staffRoleLabel } from "@/lib/permissions";
 import { adminRegistry } from "@/lib/services/assets";
 import { explorerTxLink } from "@/lib/asset-rules";
+import { adminGiftCardRates } from "@/lib/services/giftcards";
+import { CARD_TYPE_LABEL, countryName } from "@/lib/giftcard-rules";
 import { getSessionUser } from "@/lib/auth";
 import { maskSecret } from "@/lib/crypto";
 import { prisma } from "@/lib/db";
@@ -40,9 +44,10 @@ export default async function AdminPage() {
   if (!user) redirect("/login");
   if (user.role !== "ADMIN") redirect("/dashboard");
 
-  const [rates, registry, pendingKyc, cryptoOrdersRaw, giftOrdersRaw, withdrawals] = await Promise.all([
+  const [rates, registry, giftRates, pendingKyc, cryptoOrdersRaw, giftOrdersRaw, withdrawals] = await Promise.all([
     prisma.rate.findMany({ orderBy: { sortOrder: "asc" } }),
     adminRegistry(),
+    adminGiftCardRates(),
     prisma.kycProfile.findMany({
       where: { status: "PENDING" },
       include: { user: { select: { fullName: true, email: true, phone: true } } },
@@ -145,6 +150,7 @@ export default async function AdminPage() {
 
         <nav className="dash-nav mt-8" aria-label="Admin sections">
           <a href="#rates">Rates</a>
+          <a href="#giftcard-rates">Gift card rates</a>
           <a href="#wallets">Assets &amp; networks</a>
           <a href="#withdrawals">Withdrawals</a>
           <a href="#kyc">KYC</a>
@@ -188,30 +194,37 @@ export default async function AdminPage() {
                   </p>
                   {!r.isActive && <span className="status-pill status-muted">Inactive</span>}
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  <label className="text-sm">
-                    Sell (NGN)
-                    <input
-                      className="input mt-1"
-                      name="sellRateNgn"
-                      type="number"
-                      step="any"
-                      defaultValue={r.sellRateNgn}
-                      required
-                    />
-                  </label>
-                  <label className="text-sm">
-                    Buy (NGN)
-                    <input
-                      className="input mt-1"
-                      name="buyRateNgn"
-                      type="number"
-                      step="any"
-                      defaultValue={r.buyRateNgn}
-                      required
-                    />
-                  </label>
-                </div>
+                {r.kind === "GIFTCARD" ? (
+                  <p className="mt-3 text-sm text-ink-soft">
+                    Default variant pays <strong className="text-ink">{formatNgn(r.sellRateNgn)}</strong> per $1. Prices
+                    are set per country and card type under <a className="underline" href="#giftcard-rates">Gift card rates</a>.
+                  </p>
+                ) : (
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <label className="text-sm">
+                      Sell (NGN)
+                      <input
+                        className="input mt-1"
+                        name="sellRateNgn"
+                        type="number"
+                        step="any"
+                        defaultValue={r.sellRateNgn}
+                        required
+                      />
+                    </label>
+                    <label className="text-sm">
+                      Buy (NGN)
+                      <input
+                        className="input mt-1"
+                        name="buyRateNgn"
+                        type="number"
+                        step="any"
+                        defaultValue={r.buyRateNgn}
+                        required
+                      />
+                    </label>
+                  </div>
+                )}
                 <label className="mt-3 flex items-center gap-2 text-sm">
                   <input type="checkbox" name="isActive" value="true" defaultChecked={r.isActive} />
                   Active
@@ -219,6 +232,117 @@ export default async function AdminPage() {
               </ActionForm>
             ))}
           </div>
+        </section>
+
+        <section id="giftcard-rates" className="mt-14 scroll-mt-24">
+          <p className="section-label">Gift card rates</p>
+          <h2 className="mt-1 font-[family-name:var(--font-display)] text-2xl font-bold">
+            Price by country and card type
+          </h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Naira per $1 of face value. Each brand has one <strong>default</strong>: it is used when a customer does not
+            say where the card is from or its type, and it is the rate shown on the rates page and in the app. Leave
+            accepted values empty to take any amount between the minimum and maximum. Every change is logged with the old
+            and new price.
+          </p>
+          {giftRates.brands.map((b) => {
+            const variants = giftRates.variants.filter((v) => v.brand === b.symbol);
+            return (
+              <div key={b.symbol} className="mt-6">
+                <p className="font-semibold">
+                  {b.displayName}
+                  {!b.isActive && <span className="status-pill status-muted ml-2">Brand off</span>}
+                </p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {variants.map((v) => (
+                    <ActionForm key={v.id} action={updateGiftCardRateAction} className="panel" resetOnSuccess={false} submitLabel="Save">
+                      <input type="hidden" name="id" value={v.id} />
+                      <p className="text-sm font-semibold">
+                        {countryName(v.country)} · {CARD_TYPE_LABEL[v.cardType]}
+                        {v.isDefault && <span className="ml-2 text-xs font-normal text-ink-soft">default</span>}
+                        {!v.isActive && <span className="status-pill status-muted ml-2">Off</span>}
+                      </p>
+                      <div className="mt-3 grid grid-cols-3 gap-3">
+                        <label className="block text-sm">
+                          ₦ per $1
+                          <input className="input mt-1" name="rateNgn" type="number" step="any" defaultValue={v.rateNgn} required />
+                        </label>
+                        <label className="block text-sm">
+                          Min $
+                          <input className="input mt-1" name="minFaceUsd" type="number" step="any" defaultValue={v.minFaceUsd} required />
+                        </label>
+                        <label className="block text-sm">
+                          Max $
+                          <input className="input mt-1" name="maxFaceUsd" type="number" step="any" defaultValue={v.maxFaceUsd ?? ""} />
+                        </label>
+                      </div>
+                      <label className="mt-3 block text-sm">
+                        Accepted values ($)
+                        <input className="input mt-1" name="denominations" defaultValue={v.denominations ?? ""} placeholder="Any, or e.g. 25, 50, 100" />
+                      </label>
+                      <div className="mt-3 flex flex-wrap gap-4 text-sm">
+                        <label className="flex items-center gap-2">
+                          <input type="checkbox" name="isActive" defaultChecked={v.isActive} /> On
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input type="checkbox" name="isDefault" defaultChecked={v.isDefault} /> Default
+                        </label>
+                      </div>
+                    </ActionForm>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          <ActionForm action={addGiftCardRateAction} className="panel mt-6" submitLabel="Add">
+            <p className="font-semibold">Add a country or card type</p>
+            <p className="mt-1 text-xs text-ink-soft">It starts switched off, unless it is the brand&apos;s first.</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <label className="block text-sm">
+                Brand
+                <select className="input mt-1" name="brand" required defaultValue="">
+                  <option value="" disabled>
+                    Pick
+                  </option>
+                  {giftRates.brands.map((b) => (
+                    <option key={b.symbol} value={b.symbol}>
+                      {b.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm">
+                Country
+                <input className="input mt-1" name="country" placeholder="e.g. AU or Australia" required />
+              </label>
+              <label className="block text-sm">
+                Card type
+                <select className="input mt-1" name="cardType" required defaultValue="ECODE">
+                  <option value="ECODE">E-code</option>
+                  <option value="PHYSICAL">Physical card</option>
+                </select>
+              </label>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-4">
+              <label className="block text-sm">
+                ₦ per $1
+                <input className="input mt-1" name="rateNgn" type="number" step="any" required />
+              </label>
+              <label className="block text-sm">
+                Min $
+                <input className="input mt-1" name="minFaceUsd" type="number" step="any" required />
+              </label>
+              <label className="block text-sm">
+                Max $
+                <input className="input mt-1" name="maxFaceUsd" type="number" step="any" />
+              </label>
+              <label className="block text-sm">
+                Accepted values
+                <input className="input mt-1" name="denominations" placeholder="Optional" />
+              </label>
+            </div>
+          </ActionForm>
         </section>
 
         <section id="wallets" className="mt-14 scroll-mt-24">
@@ -620,7 +744,8 @@ export default async function AdminPage() {
                         {o.user.fullName} · {o.user.email}
                       </p>
                       <p className="mt-2">
-                        {o.brand} ${o.faceValueUsd} · <strong>{formatNgn(o.amountNgn)}</strong>
+                        {o.brand} ${o.faceValueUsd} · {countryName(o.country)}
+                        {o.cardType ? ` · ${CARD_TYPE_LABEL[o.cardType]}` : ""} · <strong>{formatNgn(o.amountNgn)}</strong>
                       </p>
                     </div>
                     <StatusPill status={o.status} />

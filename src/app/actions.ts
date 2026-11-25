@@ -53,6 +53,7 @@ import { createRateAlert, deleteRateAlert } from "@/lib/services/rate-alerts";
 import { startBuyOrderCheckout, startWalletFunding } from "@/lib/services/payments";
 import { publicOrigin } from "@/lib/origin";
 import { addAssetNetwork, updateAssetNetwork } from "@/lib/services/assets";
+import { addGiftCardRate, updateGiftCardRate } from "@/lib/services/giftcards";
 import { can, denialMessage, orderUpdatePermission, type Permission } from "@/lib/permissions";
 
 export type ActionResult =
@@ -254,8 +255,7 @@ export async function cancelCryptoOrderAction(formData: FormData): Promise<Actio
 export async function createGiftCardSellAction(formData: FormData): Promise<ActionResult> {
   const user = await userOrError();
   if (isActionResult(user)) return user;
-  const input = fields(formData, "brand", "country", "faceValueUsd", "cardCode", "payoutMethod");
-  if (!input.country) input.country = "USA";
+  const input = fields(formData, "brand", "country", "cardType", "faceValueUsd", "cardCode", "payoutMethod");
   return toAction(await createGiftCardSellOrder(user, input, await requestCtx()), revalidateTradeViews);
 }
 
@@ -268,6 +268,28 @@ export async function updateRateAction(formData: FormData): Promise<ActionResult
     ...fields(formData, "id", "sellRateNgn", "buyRateNgn"),
     isActive: checked(formData, "isActive"),
   });
+  return toAction(result, revalidateTradeViews);
+}
+
+/** Change one gift card variant (brand + country + card type): price, limits, accepted values, on/off, default. */
+export async function updateGiftCardRateAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("rates.manage");
+  if (isActionResult(admin)) return admin;
+  const result = await updateGiftCardRate(
+    admin,
+    fields(formData, "id", "rateNgn", "minFaceUsd", "maxFaceUsd", "denominations", "isActive", "isDefault"),
+  );
+  return toAction(result, revalidateTradeViews);
+}
+
+/** Price a new country or card type for a brand. */
+export async function addGiftCardRateAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("rates.manage");
+  if (isActionResult(admin)) return admin;
+  const result = await addGiftCardRate(
+    admin,
+    fields(formData, "brand", "country", "cardType", "rateNgn", "minFaceUsd", "maxFaceUsd", "denominations"),
+  );
   return toAction(result, revalidateTradeViews);
 }
 

@@ -117,17 +117,43 @@ async function main() {
   for (const rate of rates) {
     await prisma.rate.upsert({
       where: { kind_symbol: { kind: rate.kind, symbol: rate.symbol } },
-      update: {
-        displayName: rate.displayName,
-        sellRateNgn: rate.sellRateNgn,
-        buyRateNgn: rate.buyRateNgn,
-        minAmount: rate.minAmount,
-        maxAmount: rate.maxAmount,
-        isActive: true,
-        sortOrder: rate.sortOrder,
-      },
+      update:
+        rate.kind === "GIFTCARD"
+          ? // A gift card brand's price follows its default variant; re-seeding must not overwrite it.
+            { displayName: rate.displayName, isActive: true, sortOrder: rate.sortOrder }
+          : {
+              displayName: rate.displayName,
+              sellRateNgn: rate.sellRateNgn,
+              buyRateNgn: rate.buyRateNgn,
+              minAmount: rate.minAmount,
+              maxAmount: rate.maxAmount,
+              isActive: true,
+              sortOrder: rate.sortOrder,
+            },
       create: rate,
     });
+  }
+
+  // Gift card variants: each brand from the countries the app offers, both card types, at the
+  // brand's starting rate. Set real prices per variant on the admin desk. Never overwrites.
+  for (const rate of rates.filter((r) => r.kind === "GIFTCARD")) {
+    for (const country of ["US", "GB", "DE", "CA"]) {
+      for (const cardType of ["ECODE", "PHYSICAL"] as const) {
+        await prisma.giftCardRate.upsert({
+          where: { brand_country_cardType: { brand: rate.symbol, country, cardType } },
+          update: {},
+          create: {
+            brand: rate.symbol,
+            country,
+            cardType,
+            rateNgn: rate.sellRateNgn,
+            minFaceUsd: rate.minAmount,
+            maxFaceUsd: rate.maxAmount,
+            isDefault: country === "US" && cardType === "ECODE",
+          },
+        });
+      }
+    }
   }
 
   // Each asset's default network and deposit address. The networks themselves are created by

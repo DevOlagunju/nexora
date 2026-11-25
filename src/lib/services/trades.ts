@@ -14,6 +14,8 @@ import { debitWallet } from "@/lib/services/wallet";
 import { claimQuote, quoteForOrder, QuoteGoneError } from "@/lib/services/quotes";
 import { resolveAssetNetwork } from "@/lib/services/assets";
 import { addressProblem } from "@/lib/asset-rules";
+import { resolveGiftVariant } from "@/lib/services/giftcards";
+import { faceValueProblem } from "@/lib/giftcard-rules";
 
 /**
  * Customer trade flows shared by web server actions and the mobile JSON API.
@@ -261,17 +263,28 @@ export async function createGiftCardSellOrder(
   if (!quoted.ok) return quoted;
   const quote = quoted.data;
 
-  const parsed = giftCardSellSchema.safeParse(quote ? { ...(input as object), brand: quote.symbol, faceValueUsd: quote.amount } : input);
+  // With a quote, the card (brand, country, type, face value) is the one that was quoted.
+  const parsed = giftCardSellSchema.safeParse(
+    quote
+      ? { ...(input as object), brand: quote.symbol, faceValueUsd: quote.amount, country: quote.country ?? undefined, cardType: quote.cardType ?? undefined }
+      : input,
+  );
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
-  const { brand, country, faceValueUsd, cardCode, payoutMethod } = parsed.data;
+  const { brand, faceValueUsd, cardCode, payoutMethod } = parsed.data;
 
-  const rateRes = await loadTradableRate("GIFTCARD", brand, faceValueUsd, "usd");
-  if (!rateRes.ok) return rateRes;
-  const rate = rateRes.data;
+  // The variant (brand + country + card type) sets the price and the accepted face values.
+  const variantRes = await resolveGiftVariant(brand, { country: parsed.data.country, cardType: parsed.data.cardType });
+  if (!variantRes.ok) return variantRes;
+  const variant = variantRes.data;
+  if (!quote) {
+    const faceIssue = faceValueProblem(variant, faceValueUsd);
+    if (faceIssue) return fail(faceIssue, 422);
+  }
+  const { country, cardType } = variant;
 
   const sealed = encryptSecret(cardCode);
-  const rateNgn = quote?.rateNgn ?? rate.sellRateNgn;
-  const amountNgn = quote?.amountNgn ?? mulNgn(faceValueUsd, rate.sellRateNgn);
+  const rateNgn = quote?.rateNgn ?? variant.rateNgn;
+  const amountNgn = quote?.amountNgn ?? mulNgn(faceValueUsd, variant.rateNgn);
   const risk = await assessGiftCardRisk({ userId: user.id, faceValueUsd, brand });
 
   let order;
@@ -287,6 +300,7 @@ export async function createGiftCardSellOrder(
           userId: user.id,
           brand,
           country,
+          cardType,
           faceValueUsd,
           rateNgn,
           amountNgn,

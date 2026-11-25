@@ -137,16 +137,20 @@ export const cryptoBuySchema = z.object({
 
 export const giftCardSellSchema = z.object({
   brand: code("a gift card"),
-  country: z.string().trim().min(2).max(40).default("USA"),
+  /** Country the card was issued in, as a code or name. Missing: the brand's default variant. */
+  country: z.string().trim().max(40).optional(),
+  /** "ECODE" or "PHYSICAL". Missing: the default variant's type for that country. */
+  cardType: z.string().trim().max(20).optional(),
   faceValueUsd: z.coerce.number().positive(),
   cardCode: z.string().trim().min(6).max(120),
   payoutMethod,
 });
 
+/** Prices are required for crypto; a gift card brand only switches on or off (its prices are per variant). */
 export const rateUpdateSchema = z.object({
   id: z.string().min(1),
-  sellRateNgn: z.coerce.number().positive(),
-  buyRateNgn: z.coerce.number().positive(),
+  sellRateNgn: z.coerce.number().positive().optional(),
+  buyRateNgn: z.coerce.number().positive().optional(),
   isActive: z.coerce.boolean().optional(),
 });
 

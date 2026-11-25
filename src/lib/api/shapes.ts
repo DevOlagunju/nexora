@@ -6,6 +6,7 @@ export const GIFT_ORDER_FIELDS = {
   reference: true,
   brand: true,
   country: true,
+  cardType: true,
   faceValueUsd: true,
   rateNgn: true,
   amountNgn: true,

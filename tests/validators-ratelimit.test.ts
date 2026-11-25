@@ -36,9 +36,9 @@ describe("validators", () => {
     expect(cryptoSellSchema.safeParse({ symbol: "DOGE", amountCrypto: 1 }).success).toBe(true);
     expect(cryptoSellSchema.safeParse({ symbol: "<script>", amountCrypto: 1 }).success).toBe(false);
     expect(cryptoSellSchema.safeParse({ symbol: "BTC", amountCrypto: -1 }).success).toBe(false);
-    expect(giftCardSellSchema.parse({ brand: "APPLE", faceValueUsd: "100", cardCode: "XXXX-YYYY" }).country).toBe(
-      "USA",
-    );
+    // No country or card type means "use the brand's default variant" (decided in the service).
+    const gift = giftCardSellSchema.parse({ brand: "apple", faceValueUsd: "100", cardCode: "XXXX-YYYY" });
+    expect([gift.brand, gift.faceValueUsd, gift.country, gift.cardType]).toEqual(["APPLE", 100, undefined, undefined]);
   });
 });
 
