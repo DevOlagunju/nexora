@@ -12,10 +12,13 @@ import {
   updateGiftCardRateAction,
   addGiftCardRateAction,
   recordGiftRedemptionAction,
+  resolveDepositAction,
+  simulateDepositAction,
 } from "@/app/actions";
 import { isPayoutLock } from "@/lib/payout-rules";
 import { can, staffRoleLabel } from "@/lib/permissions";
 import { earningsOverview } from "@/lib/services/reports";
+import { listDeposits } from "@/lib/services/deposits";
 import { adminRegistry } from "@/lib/services/assets";
 import { explorerTxLink } from "@/lib/asset-rules";
 import { adminGiftCardRates } from "@/lib/services/giftcards";
@@ -46,9 +49,10 @@ export default async function AdminPage() {
   if (!user) redirect("/login");
   if (user.role !== "ADMIN") redirect("/dashboard");
 
-  const [earnings, rates, registry, giftRates, pendingKyc, cryptoOrdersRaw, giftOrdersRaw, withdrawals] = await Promise.all([
+  const [earnings, deposits, rates, registry, giftRates, pendingKyc, cryptoOrdersRaw, giftOrdersRaw, withdrawals] = await Promise.all([
     // Only staff allowed to see earnings get them computed at all.
     can(user, "reports.view") ? earningsOverview() : Promise.resolve(null),
+    listDeposits(),
     prisma.rate.findMany({ orderBy: { sortOrder: "asc" } }),
     adminRegistry(),
     adminGiftCardRates(),
@@ -155,6 +159,7 @@ export default async function AdminPage() {
         <nav className="dash-nav mt-8" aria-label="Admin sections">
           {earnings && <a href="#earnings">Earnings</a>}
           <a href="#rates">Rates</a>
+          <a href="#deposits">Deposits{deposits.exceptions.length > 0 ? ` (${deposits.exceptions.length})` : ""}</a>
           <a href="#giftcard-rates">Gift card rates</a>
           <a href="#wallets">Assets &amp; networks</a>
           <a href="#withdrawals">Withdrawals</a>
@@ -323,6 +328,113 @@ export default async function AdminPage() {
               </ActionForm>
             ))}
           </div>
+        </section>
+
+        <section id="deposits" className="mt-14 scroll-mt-24">
+          <p className="section-label">Deposits</p>
+          <h2 className="mt-1 font-[family-name:var(--font-display)] text-2xl font-bold">Crypto arriving on-chain</h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Each customer sends to their own address. Once a deposit has the confirmations its network needs, it is matched
+            to the customer&apos;s open sell order, which moves to Under review. Nothing is paid automatically. Anything
+            unusual waits below for a person.
+          </p>
+
+          {deposits.exceptions.length > 0 && (
+            <div className="mt-6 space-y-3">
+              <p className="font-semibold text-amber-950">Needs a person ({deposits.exceptions.length})</p>
+              {deposits.exceptions.map((d) => (
+                <ActionForm key={d.id} action={resolveDepositAction} className="panel text-sm" resetOnSuccess={false} submitLabel="Mark resolved">
+                  <input type="hidden" name="id" value={d.id} />
+                  <p className="font-semibold">
+                    {d.status.replace("_", " ")} · {d.amount} {d.symbol} on {d.network}
+                    {d.order ? ` · ${d.order.reference}` : ""}
+                  </p>
+                  <p className="mt-1 break-all text-xs text-ink-soft">
+                    To {d.toAddress} · tx {d.txHash} · {d.confirmations} confirmations
+                  </p>
+                  {d.note && <p className="mt-1 text-xs text-amber-900">{d.note}</p>}
+                  <label className="mt-3 block text-sm">
+                    What was done
+                    <input className="input mt-1" name="note" placeholder="e.g. Refunded to sender, or attached to order by hand" required />
+                  </label>
+                </ActionForm>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-6 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="text-xs uppercase text-ink-soft">
+                <tr>
+                  <th className="py-2 pr-3">Seen</th>
+                  <th className="py-2 pr-3">Amount</th>
+                  <th className="py-2 pr-3">Confirmations</th>
+                  <th className="py-2 pr-3">Status</th>
+                  <th className="py-2 pr-3">Order</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deposits.recent.map((d) => (
+                  <tr key={d.id} className="border-t border-[var(--line)]">
+                    <td className="py-2 pr-3">{d.firstSeenAt.toLocaleString("en-NG", { timeZone: "Africa/Lagos" })}</td>
+                    <td className="py-2 pr-3">
+                      {d.amount} {d.symbol} · {d.network}
+                    </td>
+                    <td className="py-2 pr-3">{d.confirmations}</td>
+                    <td className="py-2 pr-3">{d.status.replace("_", " ")}</td>
+                    <td className="py-2 pr-3">{d.order?.reference ?? "-"}</td>
+                  </tr>
+                ))}
+                {deposits.recent.length === 0 && (
+                  <tr>
+                    <td className="py-3 text-ink-soft" colSpan={5}>
+                      No deposits seen yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {deposits.simulated && (
+            <ActionForm action={simulateDepositAction} className="panel mt-6" submitLabel="Simulate deposit" resetOnSuccess={false}>
+              <p className="font-semibold">Test a deposit (simulated provider, local only)</p>
+              <p className="mt-1 text-xs text-ink-soft">
+                Copy a customer&apos;s deposit address from their sell order. Send once with fewer confirmations than the
+                network needs, then again with the same transaction hash and enough confirmations. Tick &quot;dropped&quot; to
+                simulate the transfer leaving the chain. This form does not exist in production.
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <label className="block text-sm md:col-span-3">
+                  Deposit address
+                  <input className="input mt-1" name="toAddress" required />
+                </label>
+                <label className="block text-sm">
+                  Asset
+                  <input className="input mt-1" name="symbol" defaultValue="USDT" required />
+                </label>
+                <label className="block text-sm">
+                  Network
+                  <input className="input mt-1" name="network" defaultValue="TRC20" required />
+                </label>
+                <label className="block text-sm">
+                  Amount
+                  <input className="input mt-1" name="amount" type="number" step="any" required />
+                </label>
+                <label className="block text-sm">
+                  Confirmations
+                  <input className="input mt-1" name="confirmations" type="number" min={0} defaultValue={20} required />
+                </label>
+                <label className="block text-sm md:col-span-2">
+                  Transaction hash (to update one already sent)
+                  <input className="input mt-1" name="txHash" placeholder="Leave empty for a new transfer" />
+                </label>
+              </div>
+              <label className="mt-3 flex items-center gap-2 text-sm">
+                <input type="checkbox" name="dropped" /> Dropped from the chain
+              </label>
+            </ActionForm>
+          )}
         </section>
 
         <section id="giftcard-rates" className="mt-14 scroll-mt-24">

@@ -33,6 +33,11 @@ describe("checkEnv", () => {
     expect(dev.warnings.join(" ")).toMatch(/ENCRYPTION_KEY/);
   });
 
+  it("refuses to start production with the simulated deposit provider", () => {
+    expect(checkEnv({ ...good, DEPOSIT_PROVIDER: "simulated" }).errors.join(" ")).toMatch(/DEPOSIT_PROVIDER=simulated/);
+    expect(checkEnv({ ...good, DEPOSIT_PROVIDER: "none" }).errors).toEqual([]);
+  });
+
   it("warns about test Paystack keys in production", () => {
     const r = checkEnv({ ...good, PAYSTACK_SECRET_KEY: "sk_test_abc" });
     expect(r.errors).toEqual([]);

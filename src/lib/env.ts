@@ -97,6 +97,10 @@ export function checkEnv(raw: Record<string, string | undefined>): EnvReport {
     if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) {
       warnings.push("Upstash Redis unset - rate limits are per-instance memory only");
     }
+    if ((raw.DEPOSIT_PROVIDER ?? "").trim().toLowerCase() === "simulated") {
+      // The simulated provider would let anyone with the test secret report deposits that never happened.
+      errors.push("DEPOSIT_PROVIDER=simulated is for local testing only. Unset it or use a real provider in production.");
+    }
     if (env.PAYSTACK_SECRET_KEY?.startsWith("sk_test_")) {
       warnings.push("PAYSTACK_SECRET_KEY is a TEST key");
     }

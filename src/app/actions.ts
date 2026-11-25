@@ -55,6 +55,7 @@ import { publicOrigin } from "@/lib/origin";
 import { addAssetNetwork, updateAssetNetwork } from "@/lib/services/assets";
 import { addGiftCardRate, updateGiftCardRate } from "@/lib/services/giftcards";
 import { recordGiftRedemption } from "@/lib/services/reports";
+import { resolveDeposit, simulateDeposit } from "@/lib/services/deposits";
 import { can, denialMessage, orderUpdatePermission, type Permission } from "@/lib/permissions";
 
 export type ActionResult =
@@ -336,6 +337,24 @@ export async function recordGiftRedemptionAction(formData: FormData): Promise<Ac
   const admin = await staffOrError("orders.review");
   if (isActionResult(admin)) return admin;
   return toAction(await recordGiftRedemption(admin, fields(formData, "id", "redeemedNgn")), revalidateTradeViews);
+}
+
+/** Close a deposit exception once someone has dealt with it. */
+export async function resolveDepositAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("orders.review");
+  if (isActionResult(admin)) return admin;
+  return toAction(await resolveDeposit(admin, fields(formData, "id", "note")), revalidateTradeViews);
+}
+
+/** Local testing only: pretend the simulated provider saw a transfer. Refused in production. */
+export async function simulateDepositAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("orders.review");
+  if (isActionResult(admin)) return admin;
+  const result = await simulateDeposit(admin, {
+    ...fields(formData, "toAddress", "network", "symbol", "amount", "confirmations", "txHash"),
+    dropped: checked(formData, "dropped"),
+  });
+  return toAction(result, revalidateTradeViews);
 }
 
 /** Admin-only: decrypt gift code on demand. Every reveal is audited. */

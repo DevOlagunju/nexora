@@ -6,6 +6,7 @@ import { formatNgn } from "@/lib/format";
 import { ActionForm } from "@/components/action-form";
 import { PayoutChoice } from "@/components/wallet/payout-choice";
 import { listAssetNetworks } from "@/lib/services/assets";
+import { personaliseWallets } from "@/lib/services/deposits";
 
 export default async function SellCryptoPage() {
   const user = await getSessionUser();
@@ -15,7 +16,13 @@ export default async function SellCryptoPage() {
     where: { kind: "CRYPTO", isActive: true },
     orderBy: { sortOrder: "asc" },
   });
-  const wallets = (await listAssetNetworks({ includeAddresses: true })).filter((w) => w.sell);
+  // With a deposit provider, the customer's own addresses (created on first view).
+  const wallets = await personaliseWallets(
+    user.id,
+    (await listAssetNetworks({ includeAddresses: true }))
+      .filter((w) => w.sell)
+      .map((w) => ({ ...w, address: w.depositAddress ?? "", memo: w.depositMemo ?? null })),
+  );
   const networkCodes = [...new Set(wallets.map((w) => w.network))];
   const kyc = await prisma.kycProfile.findUnique({ where: { userId: user.id } });
   const bankLabel = kyc?.bankName && kyc.accountNumber ? `${kyc.bankName} ••${kyc.accountNumber.slice(-4)}` : null;
@@ -94,8 +101,8 @@ export default async function SellCryptoPage() {
               {w.symbol} · {w.networkName}
               {w.isDefault && <span className="ml-2 text-xs font-normal text-ink-soft">default</span>}
             </p>
-            <code className="mt-1 block break-all text-xs text-ink">{w.depositAddress}</code>
-            {w.depositMemo && <p className="mt-1 text-xs text-ink">Memo: {w.depositMemo}</p>}
+            <code className="mt-1 block break-all text-xs text-ink">{w.address}</code>
+            {w.memo && <p className="mt-1 text-xs text-ink">Memo: {w.memo}</p>}
             <p className="mt-1 text-xs text-ink-soft">Credited after {w.confirmations} confirmation{w.confirmations === 1 ? "" : "s"}.</p>
             {w.note && <p className="mt-2 text-xs text-amber-900">{w.note}</p>}
           </div>
