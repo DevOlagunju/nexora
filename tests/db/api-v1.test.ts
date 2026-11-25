@@ -101,6 +101,19 @@ describe("v1 auth", () => {
     expect(JSON.stringify(profile.json)).not.toMatch(/passwordHash|transactionPinHash/);
   });
 
+  it("gives every sign-in its own session, even several in the same second", async () => {
+    const customer = await makeCustomer();
+    const row = await prisma.user.findUniqueOrThrow({ where: { id: customer.id } });
+    const who = { id: row.id, email: row.email, fullName: row.fullName, phone: row.phone, role: row.role };
+
+    // Back to back, with no delay: a double-tapped login, or register followed at once by login.
+    const tokens = await Promise.all(Array.from({ length: 5 }, () => createSession(who, { setCookie: false })));
+
+    expect(new Set(tokens).size).toBe(5);
+    expect(await prisma.session.count({ where: { userId: customer.id } })).toBe(5);
+    for (const token of tokens) expect((await call(me.GET, { token })).status).toBe(200);
+  });
+
   it("refuses a wrong password without saying which part was wrong", async () => {
     const res = await call(login.POST, { method: "POST", body: { email: "nobody@example.test", password: "whatever-123" } });
     expect(res.status).toBe(401);

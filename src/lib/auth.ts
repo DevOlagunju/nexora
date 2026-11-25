@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
@@ -65,6 +66,9 @@ export async function createSession(
     name: user.fullName,
   })
     .setProtectedHeader({ alg: "HS256" })
+    // Unique per session. Without it two sign-ins by the same user in the same second
+    // produce the identical token, and the second one fails on the unique token hash.
+    .setJti(randomUUID())
     .setIssuedAt()
     .setExpirationTime(expiresAt)
     .sign(getSecret());
