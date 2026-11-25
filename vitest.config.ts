@@ -24,6 +24,9 @@ export default defineConfig({
       // The database tests' balances are worked out with a ₦50 withdrawal fee. Pinned here so
       // they do not change with the default or a local .env.
       WALLET_WITHDRAWAL_FEE_NGN: "50",
+      // Most tests expect the desk's shared deposit address; tests/db/deposits.test.ts switches the
+      // simulated deposit provider on for itself.
+      DEPOSIT_PROVIDER: "none",
     },
   },
 });

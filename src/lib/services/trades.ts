@@ -15,7 +15,9 @@ import { claimQuote, quoteForOrder, QuoteGoneError } from "@/lib/services/quotes
 import { resolveAssetNetwork } from "@/lib/services/assets";
 import { addressProblem } from "@/lib/asset-rules";
 import { resolveGiftVariant } from "@/lib/services/giftcards";
+import { customerDepositAddress } from "@/lib/services/deposits";
 import { faceValueProblem } from "@/lib/giftcard-rules";
+import { errorMessage, log } from "@/lib/log";
 
 /**
  * Customer trade flows shared by web server actions and the mobile JSON API.
@@ -86,6 +88,18 @@ export async function createCryptoSellOrder(
   const placed = await resolveAssetNetwork(symbol, "SELL", requestedNetwork);
   if (!placed.ok) return placed;
   const wallet = placed.data;
+  // With a deposit provider, the customer sends to their own address and the deposit is matched
+  // automatically. Without one, to the desk's shared address as before.
+  let own: Awaited<ReturnType<typeof customerDepositAddress>>;
+  try {
+    own = await customerDepositAddress(user.id, symbol, wallet.network);
+  } catch (err) {
+    // Never fall back to an address nobody is watching for this customer.
+    log.error("trades: deposit provider failed", { symbol, network: wallet.network.code, error: errorMessage(err) });
+    return fail("We couldn't create your deposit address just now. Please try again in a few minutes.", 503);
+  }
+  const depositAddress = own?.address ?? wallet.depositAddress;
+  const depositMemo = own ? own.memo : wallet.depositMemo;
 
   // A quote's locked price wins; otherwise the desk rate at this moment is authoritative.
   const rateNgn = quote?.rateNgn ?? rate.sellRateNgn;
@@ -109,7 +123,7 @@ export async function createCryptoSellOrder(
           // The market price behind the rate, for the earnings report. The quote's if there is one.
           marketRateNgn: quote ? quote.marketRateNgn : rate.marketRateNgn,
           amountNgn,
-          depositAddress: wallet.depositAddress,
+          depositAddress,
           txHash: txHash || undefined,
           payoutMethod,
           bankName: kyc.bankName,
@@ -139,8 +153,8 @@ export async function createCryptoSellOrder(
   return ok(
     order,
     `Order ${order.reference} created. Send ${amountCrypto} ${order.symbol} on ${order.network} only to ${order.depositAddress}${
-      wallet.depositMemo ? ` with memo ${wallet.depositMemo}` : ""
-    }, then submit your TX hash from Orders.`,
+      depositMemo ? ` with memo ${depositMemo}` : ""
+    }${own ? ". We'll see it arrive and confirm it automatically." : ", then submit your TX hash from Orders."}`,
   );
 }
 

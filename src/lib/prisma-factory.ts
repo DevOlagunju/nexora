@@ -81,6 +81,9 @@ export function createPrismaClient(url = process.env.DATABASE_URL ?? "") {
         minFaceUsd: { needs: { minFaceUsd: true }, compute: (r) => n(r.minFaceUsd) },
         maxFaceUsd: { needs: { maxFaceUsd: true }, compute: (r) => nOrNull(r.maxFaceUsd) },
       },
+      blockchainDeposit: {
+        amount: { needs: { amount: true }, compute: (r) => n(r.amount) },
+      },
       ledgerAccount: {
         balance: { needs: { balance: true }, compute: (r) => n(r.balance) },
       },

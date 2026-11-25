@@ -28,6 +28,8 @@ export const PERMISSIONS = {
   "payouts.verify": "Verify payouts",
   /** See what the business earned. */
   "reports.view": "View earnings",
+  /** Request or approve a manual wallet adjustment (always needs a second person). */
+  "ledger.adjust": "Adjust wallet balances",
   /** Give or change staff roles. */
   "staff.manage": "Manage staff",
 } as const;
@@ -63,7 +65,7 @@ const GRANTS: Record<StaffRole, readonly Permission[]> = {
   // Verifies trades and sets prices. Cannot release Naira.
   TRADING_OFFICER: ["desk.view", "rates.manage", "orders.review", "giftcards.reveal"],
   // Releases Naira. Cannot change prices, addresses or trade decisions.
-  FINANCE_OFFICER: ["desk.view", "orders.payout", "withdrawals.process", "payouts.verify", "reports.view"],
+  FINANCE_OFFICER: ["desk.view", "orders.payout", "withdrawals.process", "payouts.verify", "reports.view", "ledger.adjust"],
   COMPLIANCE_OFFICER: ["desk.view", "kyc.review"],
   CUSTOMER_SUPPORT: ["desk.view"],
   AUDITOR: ["desk.view", "reports.view"],

@@ -52,9 +52,10 @@ import { markNotificationsRead } from "@/lib/services/notifications";
 import { createRateAlert, deleteRateAlert } from "@/lib/services/rate-alerts";
 import { startBuyOrderCheckout, startWalletFunding } from "@/lib/services/payments";
 import { publicOrigin } from "@/lib/origin";
-import { addAssetNetwork, updateAssetNetwork } from "@/lib/services/assets";
+import { cancelApproval, decideApproval, requestApproval } from "@/lib/services/approvals";
 import { addGiftCardRate, updateGiftCardRate } from "@/lib/services/giftcards";
 import { recordGiftRedemption } from "@/lib/services/reports";
+import { resolveDeposit, simulateDeposit } from "@/lib/services/deposits";
 import { can, denialMessage, orderUpdatePermission, type Permission } from "@/lib/permissions";
 
 export type ActionResult =
@@ -338,6 +339,24 @@ export async function recordGiftRedemptionAction(formData: FormData): Promise<Ac
   return toAction(await recordGiftRedemption(admin, fields(formData, "id", "redeemedNgn")), revalidateTradeViews);
 }
 
+/** Close a deposit exception once someone has dealt with it. */
+export async function resolveDepositAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("orders.review");
+  if (isActionResult(admin)) return admin;
+  return toAction(await resolveDeposit(admin, fields(formData, "id", "note")), revalidateTradeViews);
+}
+
+/** Local testing only: pretend the simulated provider saw a transfer. Refused in production. */
+export async function simulateDepositAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("orders.review");
+  if (isActionResult(admin)) return admin;
+  const result = await simulateDeposit(admin, {
+    ...fields(formData, "toAddress", "network", "symbol", "amount", "confirmations", "txHash"),
+    dropped: checked(formData, "dropped"),
+  });
+  return toAction(result, revalidateTradeViews);
+}
+
 /** Admin-only: decrypt gift code on demand. Every reveal is audited. */
 export async function revealGiftCardCodeAction(orderId: string): Promise<ActionResult> {
   const admin = await staffOrError("giftcards.reveal");
@@ -354,23 +373,49 @@ export async function reviewKycAction(formData: FormData): Promise<ActionResult>
   return toAction(result, revalidateTradeViews);
 }
 
-/** Change an asset's settings on one network (deposit address, confirmations, on/off, default). */
+/**
+ * Ask to change an asset's settings on one network (deposit address, confirmations, on/off, default).
+ * Where customers send crypto is too sensitive for one person: another staff member must approve.
+ */
 export async function updateAssetNetworkAction(formData: FormData): Promise<ActionResult> {
   const admin = await staffOrError("wallets.manage");
   if (isActionResult(admin)) return admin;
-  const result = await updateAssetNetwork(
+  const result = await requestApproval(
     admin,
+    "asset_network.update",
     fields(formData, "id", "depositAddress", "depositMemo", "confirmations", "depositsEnabled", "withdrawalsEnabled", "isDefault", "note"),
   );
   return toAction(result, revalidateTradeViews);
 }
 
-/** Put an asset on another network. It starts switched off. */
+/** Ask to put an asset on another network. Applied (switched off) once someone else approves. */
 export async function addAssetNetworkAction(formData: FormData): Promise<ActionResult> {
   const admin = await staffOrError("wallets.manage");
   if (isActionResult(admin)) return admin;
-  const result = await addAssetNetwork(admin, fields(formData, "symbol", "networkId", "depositAddress", "depositMemo", "note"));
+  const result = await requestApproval(admin, "asset_network.add", fields(formData, "symbol", "networkId", "depositAddress", "depositMemo", "note"));
   return toAction(result, revalidateTradeViews);
+}
+
+/** Ask to credit or debit a customer's wallet by hand. Always needs a second person. */
+export async function requestWalletAdjustmentAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("ledger.adjust");
+  if (isActionResult(admin)) return admin;
+  const result = await requestApproval(admin, "ledger.adjustment", fields(formData, "email", "direction", "amountNgn", "reasonCode", "note"));
+  return toAction(result, revalidateTradeViews);
+}
+
+/** Approve (and apply) or reject someone else's request. The permission is checked per request. */
+export async function decideApprovalAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("desk.view");
+  if (isActionResult(admin)) return admin;
+  return toAction(await decideApproval(admin, fields(formData, "id", "decision", "note")), revalidateTradeViews);
+}
+
+/** Withdraw your own pending request. */
+export async function cancelApprovalAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("desk.view");
+  if (isActionResult(admin)) return admin;
+  return toAction(await cancelApproval(admin, fields(formData, "id")), revalidateTradeViews);
 }
 
 /* --------------------------------- wallet -------------------------------- */

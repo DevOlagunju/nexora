@@ -132,8 +132,15 @@ const addSchema = z.object({
   note,
 });
 
-/** Change an asset's settings on one network. Deposit address changes are always audited and alerted. */
-export async function updateAssetNetwork(admin: Admin, input: unknown): Promise<ServiceResult<null>> {
+/**
+ * Change an asset's settings on one network. Deposit address changes are always audited and alerted.
+ * With `dryRun`, only checks the change and describes it (for a two-person approval request).
+ */
+export async function updateAssetNetwork(
+  admin: Admin,
+  input: unknown,
+  opts: { dryRun?: boolean } = {},
+): Promise<ServiceResult<{ summary: string; targetVersion: string } | null>> {
   const parsed = updateSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
   const d = parsed.data;
@@ -144,6 +151,26 @@ export async function updateAssetNetwork(admin: Admin, input: unknown): Promise<
   if (problem) return fail(`Deposit address: ${problem}`, 422);
   if (before.isDefault && !d.isDefault) {
     return fail("Every asset needs a default network. Make another network the default instead.", 409);
+  }
+
+  if (opts.dryRun) {
+    const changes: string[] = [];
+    const was = (label: string, from: unknown, to: unknown) => {
+      if (from !== to) changes.push(`${label}: ${from ?? "none"} → ${to ?? "none"}`);
+    };
+    was("deposit address", before.depositAddress, d.depositAddress.trim());
+    was("memo", before.depositMemo ?? null, d.depositMemo);
+    was("confirmations", before.confirmations, d.confirmations);
+    was("sell", before.depositsEnabled ? "on" : "off", d.depositsEnabled ? "on" : "off");
+    was("buy", before.withdrawalsEnabled ? "on" : "off", d.withdrawalsEnabled ? "on" : "off");
+    was("default", before.isDefault ? "yes" : "no", d.isDefault ? "yes" : "no");
+    was("note", before.note ?? null, d.note);
+    if (changes.length === 0) return fail("Nothing changed.", 422);
+    return ok({
+      summary: `${before.symbol} on ${before.network.code}: ${changes.join("; ")}`,
+      // Approval is refused if the row changes between the request and the decision.
+      targetVersion: before.updatedAt.toISOString(),
+    });
   }
 
   await prisma.$transaction(async (tx) => {
@@ -201,8 +228,15 @@ export async function updateAssetNetwork(admin: Admin, input: unknown): Promise<
   return ok(null, `${before.symbol} on ${before.network.code} saved.`);
 }
 
-/** Put an existing asset on another network. It starts with deposits and withdrawals off. */
-export async function addAssetNetwork(admin: Admin, input: unknown): Promise<ServiceResult<null>> {
+/**
+ * Put an existing asset on another network. It starts with deposits and withdrawals off.
+ * With `dryRun`, only checks it and describes it (for a two-person approval request).
+ */
+export async function addAssetNetwork(
+  admin: Admin,
+  input: unknown,
+  opts: { dryRun?: boolean } = {},
+): Promise<ServiceResult<{ summary: string; targetVersion: string } | null>> {
   const parsed = addSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
   const d = parsed.data;
@@ -216,6 +250,16 @@ export async function addAssetNetwork(admin: Admin, input: unknown): Promise<Ser
   if (!network || !network.isActive) return fail("Pick an active network.", 422);
   const problem = addressProblem(d.depositAddress, network);
   if (problem) return fail(`Deposit address: ${problem}`, 422);
+
+  if (opts.dryRun) {
+    if (await prisma.assetNetwork.findUnique({ where: { symbol_networkId: { symbol: d.symbol, networkId: network.id } } })) {
+      return fail(`${d.symbol} is already on ${network.code}.`, 409);
+    }
+    return ok({
+      summary: `Add ${d.symbol} on ${network.code} with deposit address ${d.depositAddress.trim()}${d.depositMemo ? ` (memo ${d.depositMemo})` : ""}. Starts switched off.`,
+      targetVersion: "new",
+    });
+  }
 
   try {
     await prisma.assetNetwork.create({
