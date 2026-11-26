@@ -123,7 +123,17 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   const token = jar.get(COOKIE_NAME)?.value;
   if (!token) return null;
   const user = await resolveUserFromToken(token);
-  if (!user) await destroySession();
+  if (!user) {
+    // Expired, revoked or forged: make sure it can't be used again.
+    await prisma.session.deleteMany({ where: { tokenHash: sha256(token) } });
+    try {
+      jar.delete(COOKIE_NAME);
+    } catch {
+      // While a page renders, cookies are read-only (only actions and route handlers may change
+      // them). The stale cookie is harmless: it is rejected like this on every request, and the
+      // next sign-in or sign-out replaces it.
+    }
+  }
   return user;
 }
 
