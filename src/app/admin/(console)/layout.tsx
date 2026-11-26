@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { logoutAction } from "@/app/actions";
 import { getSessionUser } from "@/lib/auth";
 import { can, staffRoleLabel } from "@/lib/permissions";
-import { pendingWork } from "@/lib/services/admin-overview";
+import { pendingWork, pendingWorkIds } from "@/lib/services/admin-overview";
 import { AdminSidebar, type AdminNavItem } from "@/components/admin/sidebar";
 import { MenuIcon, SearchIcon } from "@/components/admin/icons";
 import { NotificationsMenu } from "@/components/admin/notifications-menu";
@@ -20,7 +20,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!user) redirect("/admin/login");
   if (user.role !== "ADMIN") redirect("/dashboard");
 
-  const pending = await pendingWork(8);
+  const [pending, pendingIds] = await Promise.all([pendingWork(8), pendingWorkIds()]);
   const items: AdminNavItem[] = [
     { href: "/admin", label: "Dashboard", icon: "home" },
     { href: "/admin/users", label: "Users", icon: "users" },
@@ -73,6 +73,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <div className="ml-auto flex items-center gap-4">
             <NotificationsMenu
               total={pending.total}
+              ids={pendingIds}
+              viewerId={user.id}
               items={pending.items.map((p) => ({
                 id: `${p.kind}-${p.id}`,
                 title: p.title,

@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined, set: () => {}, delete: () => {} }) }));
 
 import { prisma } from "@/lib/db";
-import { adminOverview, pendingWork, recentTransactions, systemStatus } from "@/lib/services/admin-overview";
+import { adminOverview, pendingWork, pendingWorkIds, recentTransactions, systemStatus } from "@/lib/services/admin-overview";
 import { makeCustomer } from "../helpers/fixtures";
 
 const DAY = 86_400_000;
@@ -72,6 +72,14 @@ describe("admin overview figures", () => {
     const p = await pendingWork(5);
     expect(p.total).toBeGreaterThanOrEqual(1);
     expect(p.items.some((i) => i.kind === "crypto" && i.href === "/admin/desk#crypto")).toBe(true);
+  });
+
+  it("gives the bell an id for every waiting item, in the same form as the items it lists", async () => {
+    const [p, ids] = await Promise.all([pendingWork(50), pendingWorkIds()]);
+    expect(ids.length).toBeGreaterThanOrEqual(1);
+    // Opening the bell marks these ids seen, so each listed item must be among them.
+    for (const i of p.items) expect(ids).toContain(`${i.kind}-${i.id}`);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("checks the database live", async () => {

@@ -271,6 +271,34 @@ export async function pendingWork(limit = 5): Promise<{ total: number; items: Pe
   return { total: counts.reduce((s, c) => s + c, 0), items: items.slice(0, limit) };
 }
 
+/**
+ * The id of every piece of waiting work, in the same `${kind}-${id}` form as the bell's items, so
+ * the bell can count what this staff member has not seen yet (not just the few it lists).
+ * Capped per queue; a queue that long is a problem the desk will notice anyway.
+ */
+export async function pendingWorkIds(cap = 500): Promise<string[]> {
+  const id = { select: { id: true }, take: cap } as const;
+  const [fraud, deposits, approvals, crypto, gift, withdrawals, kyc] = await Promise.all([
+    prisma.giftCardOrder.findMany({ where: { fraudFlag: true, status: { in: ["UNDER_REVIEW", "APPROVED"] } }, ...id }),
+    prisma.blockchainDeposit.findMany({ where: { status: { in: [...DEPOSIT_EXCEPTIONS] } }, ...id }),
+    prisma.approvalRequest.findMany({ where: { status: "PENDING", expiresAt: { gt: new Date() } }, ...id }),
+    prisma.cryptoOrder.findMany({ where: { status: "UNDER_REVIEW" }, ...id }),
+    prisma.giftCardOrder.findMany({ where: { status: "UNDER_REVIEW", fraudFlag: false }, ...id }),
+    prisma.withdrawal.findMany({ where: { status: "PENDING" }, ...id }),
+    prisma.kycProfile.findMany({ where: { status: "PENDING" }, ...id }),
+  ]);
+  const tag = (kind: PendingItem["kind"], rows: { id: string }[]) => rows.map((r) => `${kind}-${r.id}`);
+  return [
+    ...tag("fraud", fraud),
+    ...tag("deposit", deposits),
+    ...tag("approval", approvals),
+    ...tag("crypto", crypto),
+    ...tag("gift", gift),
+    ...tag("withdrawal", withdrawals),
+    ...tag("kyc", kyc),
+  ];
+}
+
 /** Live checks of what the platform depends on. Nothing here is a stored or assumed figure. */
 export async function systemStatus(): Promise<{ checks: StatusCheck[]; dbMs: number | null; serverUpSeconds: number }> {
   let dbOk = true;
