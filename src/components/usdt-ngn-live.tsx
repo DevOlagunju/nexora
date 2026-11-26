@@ -69,7 +69,7 @@ export function UsdtNgnLiveCard({ initial }: { initial: NgnPayload | null }) {
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-[0_12px_40px_rgba(7,16,24,0.06)]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[#fafbfc] px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-paper px-4 py-3">
         <div>
           <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-accent-deep">
             <span className="live-dot" aria-hidden />

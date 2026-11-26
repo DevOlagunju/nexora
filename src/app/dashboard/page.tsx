@@ -140,7 +140,7 @@ export default async function DashboardPage() {
 function KycBadge({ status }: { status: string }) {
   if (status === "APPROVED") {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/20 px-2.5 py-1 text-xs font-bold text-accent">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-bright/20 px-2.5 py-1 text-xs font-bold text-accent-bright">
         <ShieldCheck className="h-3.5 w-3.5" /> Verified
       </span>
     );
