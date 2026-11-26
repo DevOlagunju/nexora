@@ -1332,9 +1332,9 @@ html[data-hide-balance] .money-private {
 .site-wrap {
   margin-inline: auto;
   width: 100%;
-  /* No max width: content always spans the screen with a margin of about 5% a side, so wide or
-     zoomed-out screens aren't framed by blank strips. */
-  padding-inline: clamp(1.25rem, 5vw, 10rem);
+  /* No max width: content always spans the screen with a slim margin (about 3% a side, at most
+     4rem), so wide or zoomed-out screens are not framed by blank strips. */
+  padding-inline: clamp(1rem, 3vw, 4rem);
 }
 
 .hero-live {
@@ -1365,7 +1365,7 @@ html[data-hide-balance] .money-private {
 .site-nav-link {
   position: relative;
   padding: 0.35rem 0;
-  font-size: 1.0625rem;
+  font-size: 1.1875rem;
   font-weight: 500;
   color: var(--ink);
   transition: color 0.15s ease;
@@ -1373,18 +1373,31 @@ html[data-hide-balance] .money-private {
 .site-nav-link:hover {
   color: var(--accent-deep);
 }
+/* Same weight as the other links, so the menu doesn't shift when the current item changes. */
 .site-nav-link--on {
   color: var(--accent);
-  font-weight: 600;
 }
-.site-nav-link--on::after {
-  content: "";
+/* The single underline under the current menu item; site-nav.tsx positions it and it slides between items. */
+.site-nav-bar {
   position: absolute;
-  inset-inline: 0;
-  bottom: -0.55rem;
+  left: 0;
+  top: 0;
   height: 2px;
   border-radius: 2px;
   background: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+}
+.site-nav-bar[data-placed] {
+  transition:
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.2s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-nav-bar[data-placed] {
+    transition: none;
+  }
 }
 
 .download-pill {

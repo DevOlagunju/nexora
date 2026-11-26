@@ -3,9 +3,8 @@ import { logoutAction } from "@/app/actions";
 import type { SessionUser } from "@/lib/auth";
 import { supportWhatsAppUrl } from "@/lib/support";
 import { NexoraLogo } from "@/components/nexora-logo";
-import { ChevronDownIcon, DownloadIcon, MenuIcon, WhatsAppIcon } from "@/components/landing/icons";
-
-type NavLink = { label: string; href: string; external?: boolean };
+import { DownloadIcon, MenuIcon, WhatsAppIcon } from "@/components/landing/icons";
+import { NavItem, SiteNav, type NavLink } from "@/components/site-nav";
 
 /** Public-site navigation. Customers trade in the app, so there is no sign-in here: staff use /admin/login. */
 function navigation() {
@@ -23,44 +22,8 @@ function navigation() {
   };
 }
 
-function NavItem({ link, className }: { link: NavLink; className: string }) {
-  return link.external ? (
-    <a href={link.href} target="_blank" rel="noopener noreferrer" className={className}>
-      {link.label}
-    </a>
-  ) : (
-    <Link href={link.href} className={className}>
-      {link.label}
-    </Link>
-  );
-}
-
-/** A hover / keyboard-focus dropdown (no script needed). */
-function NavMenu({ label, links }: { label: string; links: NavLink[] }) {
-  return (
-    <div className="group relative">
-      <button type="button" className="site-nav-link flex items-center gap-1" aria-haspopup="true">
-        {label}
-        <ChevronDownIcon className="h-4 w-4 transition group-hover:rotate-180 group-focus-within:rotate-180" />
-      </button>
-      <div className="invisible absolute left-1/2 top-full z-50 -translate-x-1/2 pt-3 opacity-0 transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
-        <div className="min-w-52 rounded-2xl border border-[var(--line)] bg-white p-2 shadow-[0_18px_40px_rgba(10,79,42,0.14)]">
-          {links.map((l) => (
-            <NavItem
-              key={l.label}
-              link={l}
-              className="block rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-ink-soft hover:bg-accent-soft hover:text-accent-deep"
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function SiteHeader({ user, current }: { user?: SessionUser | null; current?: "home" | "rates" }) {
   const nav = navigation();
-  const on = "site-nav-link site-nav-link--on";
   return (
     <header className="sticky top-0 z-40 border-b border-transparent bg-white/75 backdrop-blur-md">
       <div className="site-wrap flex h-[4.75rem] items-center justify-between gap-6">
@@ -69,17 +32,12 @@ export function SiteHeader({ user, current }: { user?: SessionUser | null; curre
           Nexora
         </Link>
 
-        <nav className="hidden items-center gap-9 lg:flex" aria-label="Main">
-          <Link href="/" className={current === "home" ? on : "site-nav-link"}>
-            Home
-          </Link>
-          <Link href="/#about" className="site-nav-link">
-            About
-          </Link>
-          <NavMenu label="Features" links={nav.features} />
-          <NavMenu label="Help" links={nav.help} />
-          <NavItem link={nav.contact} className="site-nav-link" />
-        </nav>
+        <SiteNav
+          current={current === "rates" ? "features" : current}
+          features={nav.features}
+          help={nav.help}
+          contact={nav.contact}
+        />
 
         <div className="flex items-center gap-2">
           {user?.role === "ADMIN" ? (

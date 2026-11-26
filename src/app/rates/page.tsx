@@ -48,7 +48,7 @@ export default async function RatesPage() {
 
   return (
     <>
-      <SiteHeader user={user} />
+      <SiteHeader user={user} current="rates" />
       <main className="page-shell max-w-6xl">
         <p className="section-label">Rates</p>
         <h1 className="mt-3 font-[family-name:var(--font-display)] text-4xl font-bold text-ink">
