@@ -9,7 +9,7 @@ import { RateSellLists } from "@/components/rate-sell-lists";
 import { MarketTicker } from "@/components/market-ticker";
 import { Reveal } from "@/components/reveal";
 import { GetTheAppSection, StoreBadges } from "@/components/get-the-app";
-import { HeroPhone, type PhoneAsset } from "@/components/landing/hero-phone";
+import { HeroPhone } from "@/components/landing/hero-phone";
 import { HeroSweep, Skyline } from "@/components/landing/skyline";
 import {
   ArrowRightIcon,
@@ -61,20 +61,6 @@ export default async function HomePage() {
 
   const usdtRate = cryptoRates.find((r) => r.symbol === "USDT")?.sellRateNgn ?? 0;
 
-  // The phone in the hero shows the desk's real sell rates and the market's real 24h change.
-  const phoneAssets: PhoneAsset[] = ["BTC", "ETH", "USDT"]
-    .map((symbol) => {
-      const rate = cryptoRates.find((r) => r.symbol === symbol);
-      if (!rate || rate.sellRateNgn <= 0) return null;
-      const market = liveMarkets.find((m) => m.symbol === symbol);
-      return {
-        symbol,
-        name: rate.displayName.replace(/\s*\(.*\)$/, ""),
-        rateNgn: rate.sellRateNgn,
-        change24h: market?.change24h ?? null,
-      };
-    })
-    .filter((a): a is PhoneAsset => a !== null);
 
   const strip = [
     { Icon: ShieldCheckIcon, label: "Secure by Design" },
@@ -158,7 +144,7 @@ export default async function HomePage() {
                 Our <span className="swoosh-underline swoosh-underline--lg">Priority</span>
               </p>
               <div className="absolute left-[2%] top-2 z-10">
-                <HeroPhone assets={phoneAssets} />
+                <HeroPhone />
               </div>
             </div>
           </div>

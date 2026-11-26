@@ -1,31 +1,18 @@
-import { formatNgn } from "@/lib/format";
 import { NexoraLogo } from "@/components/nexora-logo";
-import { BellIcon, BuyIcon, EyeOffIcon, GiftIcon, SellIcon, WithdrawIcon } from "@/components/landing/icons";
+import { BellIcon, BuyIcon, EyeIcon, GiftIcon, SellIcon, WithdrawIcon } from "@/components/landing/icons";
 
-export type PhoneAsset = { symbol: string; name: string; rateNgn: number; change24h: number | null };
+/** Illustrative wallet balance shown on the hero phone (a picture of the app, not anyone's account). */
+const SAMPLE_BALANCE = "₦2,000,000.00";
 
-const COIN: Record<string, { bg: string; glyph: string }> = {
-  BTC: { bg: "#f7931a", glyph: "₿" },
-  ETH: { bg: "#627eea", glyph: "Ξ" },
-  USDT: { bg: "#26a17b", glyph: "₮" },
-};
+/** Coins listed on the phone. No prices: a static picture of a moving rate would mislead. */
+const COINS = [
+  { symbol: "BTC", name: "Bitcoin", bg: "#f7931a", glyph: "₿" },
+  { symbol: "ETH", name: "Ethereum", bg: "#627eea", glyph: "Ξ" },
+  { symbol: "USDT", name: "Tether", bg: "#26a17b", glyph: "₮" },
+];
 
-function Change({ value }: { value: number | null }) {
-  if (value == null) return null;
-  const flat = Math.abs(value) < 0.05;
-  const color = flat ? "text-[var(--muted)]" : value > 0 ? "text-accent" : "text-danger";
-  return (
-    <span className={`text-[11px] font-semibold ${color}`}>
-      {flat ? "0.0%" : `${value > 0 ? "+" : ""}${value.toFixed(1)}%`}
-    </span>
-  );
-}
-
-/**
- * The hero's phone: a sketch of the app's home screen. The balance stays hidden (there is no
- * customer here); the coins show the desk's real sell rates and the market's real 24h change.
- */
-export function HeroPhone({ assets }: { assets: PhoneAsset[] }) {
+/** The hero's phone: a sketch of the app's home screen. */
+export function HeroPhone() {
   const actions = [
     { label: "Buy\nCrypto", Icon: BuyIcon },
     { label: "Sell\nCrypto", Icon: SellIcon },
@@ -45,9 +32,9 @@ export function HeroPhone({ assets }: { assets: PhoneAsset[] }) {
 
         <div className="mx-4 mt-4 rounded-2xl bg-gradient-to-br from-[#0b5f31] via-[#0f8240] to-[#16a34a] p-4 text-white shadow-[0_10px_24px_rgba(11,95,49,0.35)]">
           <div className="flex items-center justify-between text-[12px] text-white/85">
-            Total Balance <EyeOffIcon className="h-4 w-4" />
+            Total Balance <EyeIcon className="h-4 w-4" />
           </div>
-          <p className="mt-1 text-[24px] font-black tracking-[0.12em]">₦ ••••••</p>
+          <p className="mt-1 text-[24px] font-black tabular-nums">{SAMPLE_BALANCE}</p>
           <p className="mt-1 text-[11px] text-white/75">Naira wallet</p>
         </div>
 
@@ -63,28 +50,22 @@ export function HeroPhone({ assets }: { assets: PhoneAsset[] }) {
         </div>
 
         <div className="mx-4 mt-4 flex items-center justify-between">
-          <span className="text-[13px] font-bold text-ink">Today&apos;s rates</span>
+          <span className="text-[13px] font-bold text-ink">Popular assets</span>
           <span className="text-[11px] font-semibold text-accent-deep">See all →</span>
         </div>
         <ul className="mx-4 mt-1">
-          {assets.map((a) => {
-            const c = COIN[a.symbol] ?? { bg: "#12a150", glyph: a.symbol[0] };
-            return (
-              <li key={a.symbol} className="flex items-center gap-2.5 border-b border-[var(--line)] py-2.5 last:border-0">
-                <span className="flex h-8 w-8 items-center justify-center rounded-full text-[15px] font-bold text-white" style={{ background: c.bg }}>
-                  {c.glyph}
-                </span>
-                <span className="flex-1 leading-tight">
-                  <span className="block text-[13px] font-semibold text-ink">{a.name}</span>
-                  <span className="block text-[10px] text-[var(--muted)]">{a.symbol} · we pay</span>
-                </span>
-                <span className="text-right leading-tight">
-                  <span className="block text-[12.5px] font-bold text-ink tabular-nums">{formatNgn(a.rateNgn)}</span>
-                  <Change value={a.change24h} />
-                </span>
-              </li>
-            );
-          })}
+          {COINS.map((c) => (
+            <li key={c.symbol} className="flex items-center gap-2.5 border-b border-[var(--line)] py-2.5 last:border-0">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full text-[15px] font-bold text-white" style={{ background: c.bg }}>
+                {c.glyph}
+              </span>
+              <span className="flex-1 leading-tight">
+                <span className="block text-[13px] font-semibold text-ink">{c.name}</span>
+                <span className="block text-[10px] text-[var(--muted)]">{c.symbol}</span>
+              </span>
+              <span className="rounded-full bg-accent-soft px-3 py-1 text-[11px] font-semibold text-accent-deep">Trade</span>
+            </li>
+          ))}
         </ul>
 
         <div className="absolute inset-x-0 bottom-0 flex justify-around border-t border-[var(--line)] bg-white px-3 pb-5 pt-2.5">

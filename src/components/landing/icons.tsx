@@ -128,6 +128,13 @@ export const BellIcon = (p: P) => (
   </Svg>
 );
 
+export const EyeIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M2.5 12c1-2.4 4.5-7 9.5-7s8.5 4.6 9.5 7c-1 2.4-4.5 7-9.5 7s-8.5-4.6-9.5-7Z" />
+    <circle cx="12" cy="12" r="3" />
+  </Svg>
+);
+
 export const EyeOffIcon = (p: P) => (
   <Svg {...p}>
     <path d="M3 3l18 18" />
