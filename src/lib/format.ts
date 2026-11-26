@@ -24,6 +24,22 @@ export function formatClockTime(iso: string | Date): string {
   }).format(d);
 }
 
+/** Date and time in Lagos, e.g. "26 Nov 2026, 18:42:05" (audit trail, statements). */
+export function formatLagosDateTime(iso: string | Date): string {
+  const d = typeof iso === "string" ? new Date(iso) : iso;
+  if (Number.isNaN(d.getTime())) return "N/A";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "Africa/Lagos",
+  }).format(d);
+}
+
 /** Compact NGN for KPI tiles: ₦950, ₦13.8K, ₦1.38M, ₦2.1B. */
 export function formatNgnCompact(amount: number): string {
   const abs = Math.abs(amount);

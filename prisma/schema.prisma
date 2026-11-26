@@ -293,6 +293,8 @@ model GiftCardOrder {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+/// Append-only: the database refuses edits and deletes (migration audit_log_append_only). The one
+/// change allowed is clearing userId when that user is deleted (onDelete: SetNull).
 model AuditLog {
   id        String   @id @default(cuid())
   userId    String?
@@ -302,6 +304,10 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
 }
 
 /// Append-only wallet ledger. `reference` is unique so every credit/debit happens at most once

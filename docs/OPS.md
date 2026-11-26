@@ -57,6 +57,11 @@ The money may already be on its way, so the system holds the payout instead of g
 2. Desk approve/reject on `/admin` KYC queue.
 3. Trading blocked until `APPROVED`.
 
+## Limits and the audit trail
+
+Daily trading and withdrawal limits, and how to use **Admin → Audit Trail**, are in
+`docs/COMPLIANCE.md`.
+
 ## Daily habit
 
 - [ ] Clear KYC queue  

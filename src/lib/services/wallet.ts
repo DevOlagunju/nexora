@@ -10,7 +10,16 @@ import { paystackConfigured, payoutToBank, referenceFromTransfer, verifyTransfer
 import { isPayoutLock, newPayoutLock, payoutVerdict } from "@/lib/payout-rules";
 import { errorMessage, log } from "@/lib/log";
 import { formatNgn } from "@/lib/format";
-import { maxWithdrawable, pinProblem, quoteWithdrawal, referralEarned, walletConfig } from "@/lib/wallet-rules";
+import {
+  dailyWithdrawalProblem,
+  maxWithdrawable,
+  pinProblem,
+  quoteWithdrawal,
+  referralEarned,
+  walletConfig,
+  type WithdrawalsToday,
+} from "@/lib/wallet-rules";
+import { startOfLagosDay } from "@/lib/trade-limits";
 import { pushNotification } from "@/lib/services/notifications";
 import { fail, ok, TOO_MANY, type ServiceResult } from "@/lib/services/result";
 import { ensureCustomerAccount, lockAndCheckFunds, postLedger } from "@/lib/services/ledger";
@@ -114,11 +123,26 @@ async function postWithdrawalPaid(
   });
 }
 
+// ---------------------------------------------------------------- daily withdrawal limit
+
+/**
+ * Withdrawals requested since midnight in Lagos that count towards the daily limit. Failed and
+ * cancelled ones are left out because their money went back to the wallet.
+ */
+async function withdrawalsToday(db: Db, userId: string): Promise<WithdrawalsToday> {
+  const agg = await db.withdrawal.aggregate({
+    where: { userId, createdAt: { gte: startOfLagosDay() }, status: { notIn: ["FAILED", "CANCELLED"] } },
+    _sum: { amountNgn: true },
+    _count: true,
+  });
+  return { usedNgn: roundNgn(numberFrom(agg._sum.amountNgn ?? 0)), count: agg._count };
+}
+
 // ---------------------------------------------------------------- read model
 
 export async function getWalletOverview(userId: string) {
   const cfg = walletConfig();
-  const [user, entries, withdrawals, kyc] = await Promise.all([
+  const [user, entries, withdrawals, kyc, today] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { walletBalanceNgn: true, transactionPinHash: true, pinLockedUntil: true },
@@ -126,11 +150,18 @@ export async function getWalletOverview(userId: string) {
     prisma.walletEntry.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 25 }),
     prisma.withdrawal.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 10 }),
     prisma.kycProfile.findUnique({ where: { userId } }),
+    withdrawalsToday(prisma, userId),
   ]);
   const balance = roundNgn(Math.max(0, user?.walletBalanceNgn ?? 0));
   return {
     balance,
-    maxWithdrawable: maxWithdrawable(balance, cfg),
+    maxWithdrawable: maxWithdrawable(balance, cfg, today),
+    dailyWithdrawals: {
+      usedNgn: today.usedNgn,
+      limitNgn: cfg.dailyWithdrawalLimitNgn,
+      count: today.count,
+      countLimit: cfg.dailyWithdrawalCount,
+    },
     hasPin: !!user?.transactionPinHash,
     pinLocked: !!user?.pinLockedUntil && user.pinLockedUntil > new Date(),
     pendingWithdrawalNgn: roundNgn(
@@ -264,6 +295,13 @@ export async function requestWithdrawal(
 
   const reference = orderReference("NXW");
   const created = await prisma.$transaction(async (tx) => {
+    // Lock the customer's ledger account first: simultaneous requests then queue here, so each
+    // one sees the withdrawals before it and two cannot both squeeze under the daily limit.
+    const accountId = await ensureCustomerAccount(tx, user.id);
+    if (!(await lockAndCheckFunds(tx, accountId, quote.totalNgn))) return { error: "Insufficient balance." };
+    const overLimit = dailyWithdrawalProblem(quote.amountNgn, await withdrawalsToday(tx, user.id), cfg);
+    if (overLimit) return { error: overLimit };
+
     const debited = await debitWallet(tx, {
       userId: user.id,
       amountNgn: quote.totalNgn,
@@ -275,8 +313,8 @@ export async function requestWithdrawal(
           ? `Withdrawal ${reference} (${formatNgn(quote.amountNgn)} + ${formatNgn(quote.feeNgn)} fee)`
           : `Withdrawal ${reference}`,
     });
-    if (!debited) return null;
-    return tx.withdrawal.create({
+    if (!debited) return { error: "Insufficient balance." };
+    await tx.withdrawal.create({
       data: {
         reference,
         userId: user.id,
@@ -288,8 +326,9 @@ export async function requestWithdrawal(
         bankCode: kyc.bankCode,
       },
     });
+    return { error: null };
   });
-  if (!created) return fail("Insufficient balance.", 422);
+  if (created.error) return fail(created.error, 422);
 
   await writeAudit("wallet.withdraw_request", {
     userId: user.id,

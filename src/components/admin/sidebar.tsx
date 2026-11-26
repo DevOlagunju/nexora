@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { NexoraLogo } from "@/components/nexora-logo";
 import { SectionLink } from "@/components/admin/section-link";
 import {
+  ActivityIcon,
   BankIcon,
   ChartIcon,
   CheckSquareIcon,
@@ -37,6 +38,7 @@ const ICONS = {
   giftRates: TagIcon,
   networks: LayersIcon,
   reports: ChartIcon,
+  audit: ActivityIcon,
 };
 
 /**
