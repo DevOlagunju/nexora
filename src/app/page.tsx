@@ -8,6 +8,7 @@ import { QuickPayout } from "@/components/quick-payout";
 import { RateSellLists } from "@/components/rate-sell-lists";
 import { MarketTicker } from "@/components/market-ticker";
 import { Reveal } from "@/components/reveal";
+import { GetTheAppSection } from "@/components/get-the-app";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
 import { getDeskSpeed } from "@/lib/desk-stats";
 import { formatDuration } from "@/lib/alert-rules";
@@ -67,8 +68,8 @@ export default async function HomePage() {
                 confirms. Withdraw to any Nigerian bank with your PIN.
               </p>
               <div className="animate-rise stagger-3 mt-8 flex flex-wrap gap-3">
-                <Link href={user ? "/dashboard" : "/register"} className="btn btn-primary">
-                  {user ? "Open dashboard" : "Create free account"}
+                <Link href="/#get-app" className="btn btn-primary">
+                  Get the app
                 </Link>
                 <Link href="/rates" className="btn glass text-white">
                   Check today&apos;s rates
@@ -82,7 +83,7 @@ export default async function HomePage() {
             </div>
             <div className="animate-float relative hidden md:block">
               <div className="glass hero-rate-card rounded-[2rem] p-6">
-                <p className="text-sm uppercase tracking-[0.2em] text-accent">Today&apos;s sell</p>
+                <p className="text-sm uppercase tracking-[0.2em] text-accent-bright">Today&apos;s sell</p>
                 <p className="mt-2 font-[family-name:var(--font-display)] text-4xl font-bold tracking-tight tabular-nums">
                   {formatNgn(usdtSell)}
                 </p>
@@ -140,7 +141,7 @@ export default async function HomePage() {
               <RateSellLists cryptoRates={cryptoRates} giftRates={giftRates} />
             </Reveal>
             <Reveal delay={120}>
-              <QuickPayout options={estimateOptions} ctaHref={user ? "/dashboard" : "/register"} />
+              <QuickPayout options={estimateOptions} ctaHref="/#get-app" ctaLabel="Trade this rate in the app" />
             </Reveal>
           </div>
         </section>
@@ -209,12 +210,12 @@ export default async function HomePage() {
                 {
                   n: "01",
                   t: "Verify once",
-                  d: "Sign up in a minute, add your BVN, NIN and bank account. Then the desk reviews it.",
+                  d: "Get the Nexora app, sign up in a minute and add your BVN, NIN and bank account. Then the desk reviews it.",
                 },
                 {
                   n: "02",
                   t: "Create an order",
-                  d: "Sell crypto or a gift card, or buy crypto with Naira.",
+                  d: "In the app, sell crypto or a gift card, or buy crypto with Naira.",
                 },
                 {
                   n: "03",
@@ -289,28 +290,9 @@ export default async function HomePage() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-6xl px-4 pb-20">
-          <Reveal>
-            <div className="cta-panel overflow-hidden rounded-[2rem] bg-ink px-6 py-10 text-white md:px-10">
-              <h2 className="font-[family-name:var(--font-display)] text-3xl font-bold">
-                Ready to trade with confidence?
-              </h2>
-              <p className="mt-2 max-w-lg text-white/70">
-                Verify once, then sell or buy in minutes on web or the mobile app.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Link href={user ? "/dashboard" : "/register"} className="btn btn-primary inline-flex">
-                  {user ? "Go to dashboard" : "Create free account"}
-                </Link>
-                {whatsapp && (
-                  <a href={whatsapp} target="_blank" rel="noopener noreferrer" className="btn glass inline-flex text-white">
-                    Chat on WhatsApp
-                  </a>
-                )}
-              </div>
-            </div>
-          </Reveal>
-        </section>
+        <Reveal>
+          <GetTheAppSection whatsapp={whatsapp} />
+        </Reveal>
       </main>
       <SiteFooter />
     </>

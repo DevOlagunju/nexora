@@ -22,9 +22,11 @@ function shortLabel(o: RateOption) {
 export function QuickPayout({
   options,
   ctaHref,
+  ctaLabel = "Trade this rate",
 }: {
   options: RateOption[];
   ctaHref: string;
+  ctaLabel?: string;
 }) {
   const first = options[0];
   const [symbol, setSymbol] = useState(first?.symbol ?? "USDT");
@@ -57,7 +59,7 @@ export function QuickPayout({
               onClick={() => setSymbol(o.symbol)}
               className={
                 on
-                  ? "rounded-full bg-ink px-3 py-1.5 text-xs font-bold text-white"
+                  ? "rounded-full bg-forest px-3 py-1.5 text-xs font-bold text-white"
                   : "rounded-full border border-[var(--line)] bg-white px-3 py-1.5 text-xs font-bold text-ink-soft hover:border-accent"
               }
             >
@@ -115,7 +117,7 @@ export function QuickPayout({
       </div>
 
       <Link href={ctaHref} className="btn btn-dark mt-4 w-full justify-center">
-        Trade this rate
+        {ctaLabel}
       </Link>
     </div>
   );

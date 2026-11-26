@@ -66,7 +66,7 @@ export default async function RatesPage() {
 
         <div className="mt-10 grid items-start gap-6 lg:grid-cols-[1.15fr_0.85fr]">
           <RateSellLists cryptoRates={cryptoRates} giftRates={giftRates} showBuy />
-          <QuickPayout options={estimateOptions} ctaHref={user ? "/dashboard" : "/register"} />
+          <QuickPayout options={estimateOptions} ctaHref="/#get-app" ctaLabel="Trade this rate in the app" />
         </div>
 
         <section className="mt-14">
