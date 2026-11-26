@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Outfit, Sora } from "next/font/google";
+import { Caveat, Outfit, Sora } from "next/font/google";
 import "./globals.css";
 
 const body = Outfit({
@@ -9,6 +9,13 @@ const body = Outfit({
 
 const display = Sora({
   variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["600", "700"],
+});
+
+/** Handwritten accent lines on the home page ("Your financial freedom, our priority"). */
+const script = Caveat({
+  variable: "--font-script",
   subsets: ["latin"],
   weight: ["600", "700"],
 });
@@ -27,7 +34,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${body.variable} ${display.variable} h-full antialiased`}
+      className={`${body.variable} ${display.variable} ${script.variable} h-full antialiased`}
       // globals.css scrolls smoothly; this lets Next.js turn it off during page changes.
       data-scroll-behavior="smooth"
       suppressHydrationWarning

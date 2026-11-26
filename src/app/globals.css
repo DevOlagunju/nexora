@@ -1325,3 +1325,263 @@ html[data-hide-balance] .money-private {
     padding: 1.25rem 1rem 2.5rem;
   }
 }
+
+/* ---------- Public website (home page) ---------- */
+
+/* Page width for the public site: wider than app pages so big screens aren't mostly margin. */
+.site-wrap {
+  margin-inline: auto;
+  width: 100%;
+  /* No max width: content always spans the screen with a margin of about 5% a side, so wide or
+     zoomed-out screens aren't framed by blank strips. */
+  padding-inline: clamp(1.25rem, 5vw, 10rem);
+}
+
+.hero-live {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 0.6rem 1.1rem;
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+  box-shadow: 0 6px 18px rgba(10, 79, 42, 0.07);
+  transition: border-color 0.15s ease;
+}
+.hero-live:hover {
+  border-color: var(--accent);
+}
+.hero-live-dot {
+  height: 0.6rem;
+  width: 0.6rem;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(18, 161, 80, 0.18);
+}
+
+.site-nav-link {
+  position: relative;
+  padding: 0.35rem 0;
+  font-size: 1.0625rem;
+  font-weight: 500;
+  color: var(--ink);
+  transition: color 0.15s ease;
+}
+.site-nav-link:hover {
+  color: var(--accent-deep);
+}
+.site-nav-link--on {
+  color: var(--accent);
+  font-weight: 600;
+}
+.site-nav-link--on::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: -0.55rem;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.download-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 45%, white);
+  border-radius: 999px;
+  background: #fff;
+  padding: 0.7rem 1.35rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--accent-deep);
+  box-shadow: 0 6px 18px rgba(10, 79, 42, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+@media (max-width: 639px) {
+  .download-pill {
+    padding: 0.6rem 1rem;
+  }
+}
+.download-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(10, 79, 42, 0.18);
+}
+
+.outline-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 2px solid var(--accent);
+  border-radius: 999px;
+  padding: 0.55rem 1.4rem;
+  font-weight: 600;
+  color: var(--accent-deep);
+  transition: background 0.15s ease;
+}
+.outline-pill:hover {
+  background: var(--accent-soft);
+}
+
+.store-badge {
+  display: inline-flex;
+  min-width: 11.5rem;
+  align-items: center;
+  gap: 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 0.85rem;
+  background: #000;
+  padding: 0.5rem 1.1rem 0.55rem 0.85rem;
+  color: #fff;
+  transition: transform 0.15s ease;
+}
+a.store-badge:hover {
+  transform: translateY(-2px);
+}
+.store-badge--lg {
+  min-width: 13rem;
+  border-radius: 1rem;
+  padding: 0.7rem 1.4rem 0.75rem 1rem;
+}
+
+.landing-hero {
+  background:
+    radial-gradient(ellipse 40% 50% at 70% 35%, rgba(91, 227, 143, 0.16), transparent 70%),
+    linear-gradient(180deg, #ffffff 0%, #f7fbf8 70%, var(--paper) 100%);
+}
+
+.hero-script {
+  font-family: var(--font-script), cursive;
+  /* Scales with screen width so the slogan clears the phone on laptops. */
+  font-size: clamp(2rem, 2.35vw, 2.9rem);
+  font-weight: 700;
+  line-height: 1.02;
+  color: var(--ink);
+  transform: rotate(-7deg);
+}
+
+.swoosh-underline {
+  position: relative;
+  white-space: nowrap;
+}
+.swoosh-underline::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: -0.15em;
+  bottom: -0.3em;
+  height: 0.35em;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 12' preserveAspectRatio='none'%3E%3Cpath d='M2 9 C30 3 65 2 98 4' fill='none' stroke='%2312a150' stroke-width='3.2' stroke-linecap='round'/%3E%3C/svg%3E")
+    no-repeat center / 100% 100%;
+}
+.swoosh-underline--lg::after {
+  bottom: -0.25em;
+  height: 0.3em;
+}
+
+.hero-phone {
+  width: 300px;
+  height: 610px;
+  border-radius: 3.1rem;
+  background: linear-gradient(145deg, #3a3d3c, #121413 40%, #2b2e2d);
+  padding: 11px;
+  transform: rotate(9deg);
+  box-shadow:
+    0 40px 70px -20px rgba(10, 40, 22, 0.55),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+.hero-phone-screen {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 2.5rem;
+  background: #fff;
+}
+
+.feature-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 1.5rem;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 40px rgba(10, 79, 42, 0.08);
+  backdrop-filter: blur(6px);
+}
+@media (min-width: 768px) {
+  .feature-strip {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .feature-strip > li + li {
+    border-left: 1px solid var(--line);
+  }
+  .feature-strip > li {
+    margin-block: 0.9rem;
+    padding-block: 0.25rem;
+  }
+}
+
+.why-card {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 1.5rem;
+  background: #fff;
+  padding: 2rem 1.25rem;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(10, 79, 42, 0.06);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.why-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 18px 40px rgba(10, 79, 42, 0.12);
+}
+.why-card-icon {
+  display: flex;
+  height: 4.25rem;
+  width: 4.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1.4rem;
+  background: linear-gradient(145deg, #5be38f, #12a150 60%, #0b7a3b);
+  color: #fff;
+  box-shadow: 0 10px 20px rgba(18, 161, 80, 0.3);
+  transform: rotate(-6deg);
+}
+
+/* "How it works" steps and the FAQ list, as white cards like "Why choose". */
+.step-card {
+  height: 100%;
+  border: 1px solid var(--line);
+  border-radius: 1.5rem;
+  background: #fff;
+  padding: 1.6rem 1.5rem;
+  box-shadow: 0 10px 30px rgba(10, 79, 42, 0.06);
+}
+
+.faq-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 1.5rem;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(10, 79, 42, 0.06);
+}
+
+.download-banner {
+  background:
+    radial-gradient(ellipse 45% 120% at 85% 0%, rgba(91, 227, 143, 0.35), transparent 70%),
+    linear-gradient(100deg, #063e20 0%, #0a6533 45%, #0e8c45 75%, #12a150 100%);
+  box-shadow: 0 20px 50px rgba(10, 79, 42, 0.25);
+}
+.download-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(115deg, transparent 0 60px, rgba(255, 255, 255, 0.04) 60px 62px);
+  pointer-events: none;
+}
