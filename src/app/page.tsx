@@ -136,7 +136,7 @@ export default async function HomePage() {
             </div>
 
             <div className="relative hidden h-[38rem] lg:block">
-              <p className="hero-script absolute -right-6 top-28 z-20 text-right">
+              <p className="hero-script absolute -right-6 top-28 z-20 hidden text-right xl:block">
                 Your
                 <br />
                 Financial Freedom
