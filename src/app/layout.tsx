@@ -1,23 +1,33 @@
 import type { Metadata } from "next";
-import { Caveat, Outfit, Sora } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const body = Outfit({
+// Fonts are self-hosted (Latin variable woff2 files from Google Fonts, SIL OFL) so builds never
+// depend on reaching fonts.googleapis.com; that download kept failing inside the Docker build.
+// None of these fonts has a ₦ glyph, so ₦ uses the system fallback, same as before.
+
+const body = localFont({
+  src: "./fonts/outfit-latin.woff2",
+  weight: "100 900",
   variable: "--font-body",
-  subsets: ["latin"],
+  display: "swap",
 });
 
-const display = Sora({
+const display = localFont({
+  src: "./fonts/sora-latin.woff2",
+  weight: "600 700",
   variable: "--font-display",
-  subsets: ["latin"],
-  weight: ["600", "700"],
+  display: "swap",
 });
 
 /** Handwritten accent lines on the home page ("Your financial freedom, our priority"). */
-const script = Caveat({
+const script = localFont({
+  src: "./fonts/caveat-latin.woff2",
+  weight: "600 700",
   variable: "--font-script",
-  subsets: ["latin"],
-  weight: ["600", "700"],
+  display: "swap",
+  // Only the home page uses it, so don't preload it on every page.
+  preload: false,
 });
 
 export const metadata: Metadata = {
