@@ -105,7 +105,7 @@ export function LiveMarketsTable({ initial }: { initial: MarketRow[] }) {
       <div className="overflow-x-auto">
         <table className="min-w-[920px] w-full border-collapse text-left text-sm">
           <thead>
-            <tr className="border-b border-[var(--line)] bg-[#fafbfc] text-[11px] font-semibold uppercase tracking-wide text-ink-soft">
+            <tr className="border-b border-[var(--line)] bg-paper text-[11px] font-semibold uppercase tracking-wide text-ink-soft">
               <th className="px-4 py-3">
                 Name
                 <span className="mt-0.5 block text-[10px] font-medium normal-case tracking-normal text-ink-soft/80">
@@ -127,7 +127,7 @@ export function LiveMarketsTable({ initial }: { initial: MarketRow[] }) {
             {markets.map((coin) => (
               <tr
                 key={coin.id}
-                className="border-b border-[var(--line)] last:border-0 hover:bg-[#f7fafc]"
+                className="border-b border-[var(--line)] last:border-0 hover:bg-accent-soft/50"
               >
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">

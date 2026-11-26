@@ -28,6 +28,8 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${body.variable} ${display.variable} h-full antialiased`}
+      // globals.css scrolls smoothly; this lets Next.js turn it off during page changes.
+      data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col font-sans" suppressHydrationWarning>

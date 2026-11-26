@@ -84,9 +84,9 @@ export default async function ResetPasswordPage({
               </label>
             </ActionForm>
             <p className="mt-4 text-center text-sm text-ink-soft">
-              Ready?{" "}
-              <Link href="/login" className="font-semibold text-accent-deep">
-                Log in
+              Done? Sign in to the Nexora app with your new password.{" "}
+              <Link href="/#get-app" className="font-semibold text-accent-deep">
+                Get the app
               </Link>
             </p>
           </div>

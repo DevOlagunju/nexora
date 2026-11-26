@@ -47,9 +47,9 @@ export default async function ForgotPasswordPage() {
               </label>
             </ActionForm>
             <p className="mt-4 text-center text-sm text-ink-soft">
-              Remembered it?{" "}
-              <Link href="/login" className="font-semibold text-accent-deep">
-                Log in
+              Remembered it? Sign in to the Nexora app.{" "}
+              <Link href="/#get-app" className="font-semibold text-accent-deep">
+                Get the app
               </Link>
             </p>
           </div>

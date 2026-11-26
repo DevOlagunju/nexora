@@ -27,7 +27,7 @@ export function RevealGiftCode({ orderId, reference }: { orderId: string; refere
   return (
     <div className="mt-4 rounded-xl bg-ink px-3 py-2.5 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-mono text-accent">
+        <p className="font-mono text-accent-bright">
           {code ? (
             <>
               Code (desk only): <span className="select-all">{code}</span>

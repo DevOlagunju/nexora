@@ -38,7 +38,6 @@ import { paystackConfigured } from "@/lib/paystack";
 import { ActionForm } from "@/components/action-form";
 import { DeskFlow } from "@/components/desk-flow";
 import { RevealGiftCode } from "@/components/reveal-gift-code";
-import { SiteFooter, SiteHeader } from "@/components/site-chrome";
 
 const CRYPTO_PRIORITY = ["UNDER_REVIEW", "APPROVED", "PAYOUT_SENT", "AWAITING_DEPOSIT", "COMPLETED"];
 const GIFT_PRIORITY = ["UNDER_REVIEW", "APPROVED", "PAYOUT_SENT", "COMPLETED"];
@@ -48,9 +47,11 @@ function priorityIndex(status: string, order: string[]) {
   return i === -1 ? 99 : i;
 }
 
-export default async function AdminPage() {
+export const metadata = { title: "Operations desk · Nexora admin" };
+
+export default async function AdminDeskPage() {
   const user = await getSessionUser();
-  if (!user) redirect("/login");
+  if (!user) redirect("/admin/login");
   if (user.role !== "ADMIN") redirect("/dashboard");
 
   const [approvals, earnings, deposits, rates, registry, giftRates, pendingKyc, cryptoOrdersRaw, giftOrdersRaw, withdrawals] = await Promise.all([
@@ -107,11 +108,9 @@ export default async function AdminPage() {
   const giftFraud = giftOrdersRaw.filter((o) => o.fraudFlag).length;
 
   return (
-    <>
-      <SiteHeader user={user} />
-      <main className="page-shell max-w-6xl py-8">
+    <div className="max-w-6xl">
         <p className="section-label">Operations</p>
-        <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-bold">Admin desk</h1>
+        <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-bold">Operations desk</h1>
         <p className="mt-2 max-w-2xl text-sm text-ink-soft">
           Work the queue in order. Keep rates current, then clear KYC and payouts. You are signed in as{" "}
           <strong>{staffRoleLabel(user)}</strong>; actions outside that role are refused and logged.
@@ -1153,9 +1152,7 @@ export default async function AdminPage() {
             })}
           </div>
         </section>
-      </main>
-      <SiteFooter />
-    </>
+    </div>
   );
 }
 
