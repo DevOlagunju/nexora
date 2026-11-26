@@ -1,7 +1,8 @@
 import "server-only";
 import { z } from "zod";
-import { prisma } from "@/lib/db";
+import { prisma, type Db } from "@/lib/db";
 import { writeAudit } from "@/lib/security";
+import { accessChangeLabel, accessLabel, accessVersion, isStaffAccess, staffChangeProblem, type StaffAccess } from "@/lib/staff-rules";
 import { notifyAdmin } from "@/lib/notify";
 import { errorMessage, log } from "@/lib/log";
 import { roundNgn } from "@/lib/money";
@@ -145,10 +146,93 @@ const assetNetworkAdd: ActionDef = {
   },
 };
 
+// ---------------------------------------------------------------- staff access
+
+const staffRoleSchema = z.object({
+  email: z.string().trim().toLowerCase().email("Enter the person's email."),
+  role: z.string().refine(isStaffAccess, "Choose a role, or no staff access."),
+  note: z.string().trim().min(10, "Say why (at least 10 characters).").max(500),
+});
+type StaffRolePayload = { userId: string; email: string; fullName: string; from: string; to: StaffAccess; note: string };
+
+const otherSuperAdmins = (db: Db, excludeId: string) =>
+  db.user.count({ where: { role: "ADMIN", staffRole: "SUPER_ADMIN", id: { not: excludeId } } });
+
+const staffRoleChange: ActionDef = {
+  permission: "staff.manage",
+  label: "Staff access change",
+  async prepare(_staff, input) {
+    const parsed = staffRoleSchema.safeParse(input);
+    if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid input");
+    const { email, note } = parsed.data;
+    const to = parsed.data.role as StaffAccess;
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        fullName: true,
+        role: true,
+        staffRole: true,
+        walletBalanceNgn: true,
+        _count: { select: { cryptoOrders: true, giftOrders: true, withdrawals: true } },
+      },
+    });
+    if (!user) return fail("No account with that email. They need to create one first (in the app), then you can give it staff access.", 404);
+    const hasCustomerActivity =
+      user.walletBalanceNgn > 0 || user._count.cryptoOrders + user._count.giftOrders + user._count.withdrawals > 0;
+    const problem = staffChangeProblem({ role: user.role, staffRole: user.staffRole, hasCustomerActivity }, to, await otherSuperAdmins(prisma, user.id));
+    if (problem) return fail(problem, 422);
+
+    const from = accessLabel(user);
+    const payload: StaffRolePayload = { userId: user.id, email, fullName: user.fullName, from, to, note };
+    return ok({
+      payload,
+      summary: `${to === "NONE" ? "Remove staff access from" : `Make`} ${user.fullName} (${email})${to === "NONE" ? "" : ` ${accessChangeLabel(to)}`}. Now: ${from}. ${note}`,
+      targetVersion: accessVersion(user),
+    });
+  },
+  async currentVersion(raw) {
+    const p = raw as StaffRolePayload;
+    const user = await prisma.user.findUnique({ where: { id: p.userId }, select: { role: true, staffRole: true } });
+    return user ? accessVersion(user) : "missing";
+  },
+  async apply(approver, raw, requestId) {
+    const p = raw as StaffRolePayload;
+    const data = p.to === "NONE" ? { role: "USER" as const, staffRole: null } : { role: "ADMIN" as const, staffRole: p.to };
+    const done = await prisma.$transaction(async (tx) => {
+      // Lock every Super Admin row first: two removals approved at the same moment then run one
+      // after the other, and the second sees that only one Super Admin would be left.
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "role" = 'ADMIN' AND "staffRole" = 'SUPER_ADMIN' FOR UPDATE`;
+      const target = await tx.user.findUnique({ where: { id: p.userId }, select: { role: true, staffRole: true } });
+      if (!target) return "The account no longer exists.";
+      if (target.staffRole === "SUPER_ADMIN" && p.to !== "SUPER_ADMIN" && (await otherSuperAdmins(tx, p.userId)) < 1) {
+        return "This is the last Super Admin. Make someone else a Super Admin first.";
+      }
+      await tx.user.update({ where: { id: p.userId }, data });
+      // Losing staff access signs them out everywhere; a role change applies on their next click.
+      if (p.to === "NONE") await tx.session.deleteMany({ where: { userId: p.userId } });
+      return null;
+    });
+    if (done) return fail(done, 409);
+
+    await writeAudit("admin.staff_role_set", {
+      userId: approver.id,
+      meta: { target: p.email, from: p.from, to: accessChangeLabel(p.to), approval: requestId },
+    });
+    void pushNotification(p.userId, {
+      title: "Your staff access changed",
+      body: p.to === "NONE" ? "You no longer have staff access to the Nexora desk." : `You are now ${accessChangeLabel(p.to)} on the Nexora desk.`,
+      href: "/admin",
+    });
+    return ok(p.to === "NONE" ? `${p.email} no longer has staff access.` : `${p.email} is now ${accessChangeLabel(p.to)}.`);
+  },
+};
+
 export const APPROVAL_ACTIONS = {
   "ledger.adjustment": ledgerAdjustment,
   "asset_network.update": assetNetworkUpdate,
   "asset_network.add": assetNetworkAdd,
+  "staff.role_change": staffRoleChange,
 } as const;
 export type ApprovalAction = keyof typeof APPROVAL_ACTIONS;
 

@@ -39,6 +39,7 @@ const ICONS = {
   networks: LayersIcon,
   reports: ChartIcon,
   audit: ActivityIcon,
+  staff: ShieldIcon,
 };
 
 /**

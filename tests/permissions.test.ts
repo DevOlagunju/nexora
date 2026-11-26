@@ -84,6 +84,8 @@ describe("staff permissions", () => {
   it("recognises role names", () => {
     expect(isStaffRole("FINANCE_OFFICER")).toBe(true);
     expect(isStaffRole("ADMIN")).toBe(false);
+    expect(isStaffRole("__proto__")).toBe(false);
+    expect(isStaffRole("toString")).toBe(false);
   });
 });
 

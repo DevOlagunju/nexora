@@ -30,6 +30,13 @@ admin console.
 - Gift card orders are flagged for the desk (not rejected) when the face value is high, or when
   the same brand or many cards arrive in a short time (`src/lib/trade-limits.ts`).
 
+## Staff access
+
+**Admin → Staff** (`/admin/staff`) lists everyone with staff access, what each role may do, and
+any staff changes waiting for approval. Giving, changing or removing access needs two Super
+Admins (one asks, a different one approves). Staff must use an account that has never traded. See
+`docs/APPROVALS.md` for the rules.
+
 ## Audit trail
 
 **Admin → Audit Trail** (`/admin/audit`) lists every recorded event, newest first: sign-ins and

@@ -177,8 +177,8 @@ export default async function AdminDeskPage() {
           <p className="section-label">Approvals</p>
           <h2 className="mt-1 font-[family-name:var(--font-display)] text-2xl font-bold">Changes waiting for a second person</h2>
           <p className="mt-1 text-sm text-ink-soft">
-            Deposit addresses, networks and manual wallet adjustments only take effect when a different staff member with
-            the same permission approves them. Nobody can approve their own request. Requests expire after 72 hours.
+            Deposit addresses, networks, manual wallet adjustments and staff access only take effect when a different staff
+            member with the same permission approves them. Nobody can approve their own request. Requests expire after 72 hours.
           </p>
           <div className="mt-4 space-y-3">
             {approvals.pending.map((r) => {

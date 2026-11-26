@@ -111,5 +111,6 @@ export function orderUpdatePermission(input: { status: string; triggerPayout?: b
 }
 
 export function isStaffRole(value: string): value is StaffRole {
-  return value in STAFF_ROLE_LABEL;
+  // Own keys only: `in` would also accept "__proto__", "toString" and the like.
+  return Object.hasOwn(STAFF_ROLE_LABEL, value);
 }

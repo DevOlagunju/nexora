@@ -421,6 +421,14 @@ export async function requestWalletAdjustmentAction(formData: FormData): Promise
   return toAction(result, revalidateTradeViews);
 }
 
+/** Ask to give, change or remove someone's staff access. Another Super Admin must approve. */
+export async function requestStaffRoleChangeAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("staff.manage");
+  if (isActionResult(admin)) return admin;
+  const result = await requestApproval(admin, "staff.role_change", fields(formData, "email", "role", "note"));
+  return toAction(result, revalidateTradeViews);
+}
+
 /** Approve (and apply) or reject someone else's request. The permission is checked per request. */
 export async function decideApprovalAction(formData: FormData): Promise<ActionResult> {
   const admin = await staffOrError("desk.view");
