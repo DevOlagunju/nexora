@@ -69,7 +69,7 @@ async function requestCtx() {
 
 /** Refresh admin + user views after desk mutations */
 function revalidateTradeViews() {
-  revalidatePath("/admin");
+  revalidatePath("/admin", "layout");
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/orders");
   revalidatePath("/dashboard/kyc");
@@ -135,11 +135,28 @@ export async function loginAction(formData: FormData): Promise<ActionResult> {
   redirect(result.data.role === "ADMIN" ? "/admin" : "/dashboard");
 }
 
+/**
+ * Staff sign-in at /admin/login. Customers trade in the app, so a customer account is refused here
+ * and no web session is created for it.
+ */
+export async function staffLoginAction(formData: FormData): Promise<ActionResult> {
+  const ctx = await requestCtx();
+  const result = await authenticate(fields(formData, "email", "password"), ctx);
+  if (!result.ok) return { ok: false, error: result.error };
+  if (result.data.role !== "ADMIN") {
+    await writeAudit("staff.login_refused", { userId: result.data.id, ip: ctx.ip });
+    return { ok: false, error: "This sign-in is for Nexora staff. Customers use the Nexora app." };
+  }
+  await createSession(result.data, ctx);
+  redirect("/admin");
+}
+
 export async function logoutAction() {
   const user = await getSessionUser();
   await destroySession();
   if (user) await writeAudit("user.logout", { userId: user.id });
-  redirect("/");
+  // Staff go back to their sign-in; anyone else to the website.
+  redirect(user?.role === "ADMIN" ? "/admin/login" : "/");
 }
 
 export async function changePasswordAction(formData: FormData): Promise<ActionResult> {
@@ -158,7 +175,7 @@ export async function logoutAllSessionsAction(): Promise<ActionResult> {
   const user = await requireUser();
   await destroyAllSessionsForUser(user.id);
   await writeAudit("user.logout_all", { userId: user.id, ip: (await requestCtx()).ip });
-  redirect("/login");
+  redirect(user.role === "ADMIN" ? "/admin/login" : "/");
 }
 
 export async function forgotPasswordAction(formData: FormData): Promise<ActionResult> {
@@ -423,7 +440,7 @@ export async function cancelApprovalAction(formData: FormData): Promise<ActionRe
 function revalidateWallet() {
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/wallet");
-  revalidatePath("/admin");
+  revalidatePath("/admin", "layout");
 }
 
 export async function setTransactionPinAction(formData: FormData): Promise<ActionResult> {

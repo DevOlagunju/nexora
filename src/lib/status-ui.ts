@@ -17,9 +17,23 @@ const TONE_BY_STATUS: Record<string, StatusTone> = {
   PROCESSING: "pending",
   PAID: "success",
   FAILED: "danger",
+  // Card / transfer payments
+  SUCCESS: "success",
+  ABANDONED: "muted",
+  // KYC
+  VERIFIED: "success",
 };
 
-const EXTRA_LABEL: Record<string, string> = { PROCESSING: "Processing", PAID: "Paid", FAILED: "Failed", PENDING: "Pending" };
+const EXTRA_LABEL: Record<string, string> = {
+  PROCESSING: "Processing",
+  PAID: "Paid",
+  FAILED: "Failed",
+  PENDING: "Pending",
+  SUCCESS: "Completed",
+  ABANDONED: "Abandoned",
+  VERIFIED: "Verified",
+  UNVERIFIED: "Unverified",
+};
 
 export function statusTone(status: string): StatusTone {
   return TONE_BY_STATUS[status] ?? "muted";
