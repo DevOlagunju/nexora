@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
-import { cancelWithdrawal, creditWallet, debitWallet, requestWithdrawal } from "@/lib/services/wallet";
+import { cancelWithdrawal, creditWallet, debitWallet, getWalletOverview, requestWithdrawal } from "@/lib/services/wallet";
 import { balanceOf, ledgerBalanceOf, makeCustomer, settle, TEST_PIN } from "../helpers/fixtures";
 
 const ctx = { ip: "127.0.0.1" };
@@ -98,5 +98,78 @@ describe("wallet ledger", () => {
     expect(res.ok).toBe(false);
     expect(await balanceOf(user.id)).toBe(10_000);
     expect(await prisma.withdrawal.count({ where: { userId: user.id } })).toBe(0);
+  });
+});
+
+describe("daily withdrawal limit", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("refuses the withdrawal that would go over the day's amount, and charges nothing for it", async () => {
+    vi.stubEnv("WALLET_DAILY_WITHDRAWAL_LIMIT_NGN", "8000");
+    const user = await makeCustomer({ balanceNgn: 50_000 });
+
+    expect((await requestWithdrawal(user, { amountNgn: 5_000, pin: TEST_PIN }, ctx)).ok).toBe(true);
+    const over = await requestWithdrawal(user, { amountNgn: 3_001, pin: TEST_PIN }, ctx);
+    expect(over.ok).toBe(false);
+    expect(!over.ok && over.error).toContain("₦3,000 more today");
+    // 50,000 - (5,000 + 50 fee): the refused one moved nothing.
+    expect(await balanceOf(user.id)).toBe(44_950);
+    expect(await ledgerBalanceOf(user.id)).toBe(44_950);
+
+    expect((await requestWithdrawal(user, { amountNgn: 3_000, pin: TEST_PIN }, ctx)).ok).toBe(true);
+    expect(await prisma.withdrawal.count({ where: { userId: user.id } })).toBe(2);
+    await settle();
+  });
+
+  it("refuses once the day's number of withdrawals is used", async () => {
+    vi.stubEnv("WALLET_DAILY_WITHDRAWAL_COUNT", "2");
+    const user = await makeCustomer({ balanceNgn: 50_000 });
+
+    expect((await requestWithdrawal(user, { amountNgn: 1_000, pin: TEST_PIN }, ctx)).ok).toBe(true);
+    expect((await requestWithdrawal(user, { amountNgn: 1_000, pin: TEST_PIN }, ctx)).ok).toBe(true);
+    const third = await requestWithdrawal(user, { amountNgn: 1_000, pin: TEST_PIN }, ctx);
+    expect(!third.ok && third.error).toContain("2 withdrawals a day");
+    await settle();
+  });
+
+  it("does not count a cancelled withdrawal, because its money came back", async () => {
+    vi.stubEnv("WALLET_DAILY_WITHDRAWAL_LIMIT_NGN", "5000");
+    const user = await makeCustomer({ balanceNgn: 50_000 });
+
+    expect((await requestWithdrawal(user, { amountNgn: 5_000, pin: TEST_PIN }, ctx)).ok).toBe(true);
+    const w = await prisma.withdrawal.findFirstOrThrow({ where: { userId: user.id } });
+    expect((await cancelWithdrawal(user, { id: w.id })).ok).toBe(true);
+
+    expect((await requestWithdrawal(user, { amountNgn: 5_000, pin: TEST_PIN }, ctx)).ok).toBe(true);
+    await settle();
+  });
+
+  it("never lets simultaneous requests pass the day's amount together", async () => {
+    vi.stubEnv("WALLET_DAILY_WITHDRAWAL_LIMIT_NGN", "10000");
+    const user = await makeCustomer({ balanceNgn: 100_000 });
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => requestWithdrawal(user, { amountNgn: 4_000, pin: TEST_PIN }, ctx).catch(() => ({ ok: false }))),
+    );
+
+    // 4,000 + 4,000 fits under 10,000; a third would make 12,000.
+    expect(results.filter((r) => r.ok)).toHaveLength(2);
+    const sum = await prisma.withdrawal.aggregate({ where: { userId: user.id }, _sum: { amountNgn: true } });
+    expect(Number(sum._sum.amountNgn)).toBe(8_000);
+    expect(await balanceOf(user.id)).toBe(100_000 - 2 * 4_050);
+    await settle();
+  });
+
+  it("shows the customer what is left of the day", async () => {
+    vi.stubEnv("WALLET_DAILY_WITHDRAWAL_LIMIT_NGN", "10000");
+    const user = await makeCustomer({ balanceNgn: 100_000 });
+    expect((await requestWithdrawal(user, { amountNgn: 7_500, pin: TEST_PIN }, ctx)).ok).toBe(true);
+
+    const overview = await getWalletOverview(user.id);
+    expect(overview.maxWithdrawable).toBe(2_500);
+    expect(overview.dailyWithdrawals).toEqual({ usedNgn: 7_500, limitNgn: 10_000, count: 1, countLimit: 5 });
+    await settle();
   });
 });

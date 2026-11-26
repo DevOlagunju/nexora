@@ -32,6 +32,8 @@ export const PERMISSIONS = {
   "ledger.adjust": "Adjust wallet balances",
   /** Give or change staff roles. */
   "staff.manage": "Manage staff",
+  /** Read the audit trail: every sign-in, order, payout and desk decision, with who did it. */
+  "audit.view": "View the audit trail",
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -61,14 +63,15 @@ const GRANTS: Record<StaffRole, readonly Permission[]> = {
     "withdrawals.process",
     "payouts.verify",
     "reports.view",
+    "audit.view",
   ],
   // Verifies trades and sets prices. Cannot release Naira.
   TRADING_OFFICER: ["desk.view", "rates.manage", "orders.review", "giftcards.reveal"],
   // Releases Naira. Cannot change prices, addresses or trade decisions.
   FINANCE_OFFICER: ["desk.view", "orders.payout", "withdrawals.process", "payouts.verify", "reports.view", "ledger.adjust"],
-  COMPLIANCE_OFFICER: ["desk.view", "kyc.review"],
+  COMPLIANCE_OFFICER: ["desk.view", "kyc.review", "audit.view"],
   CUSTOMER_SUPPORT: ["desk.view"],
-  AUDITOR: ["desk.view", "reports.view"],
+  AUDITOR: ["desk.view", "reports.view", "audit.view"],
 };
 
 export type StaffActor = { role: string; staffRole?: StaffRole | null };

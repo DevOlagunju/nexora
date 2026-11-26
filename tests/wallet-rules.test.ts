@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  dailyWithdrawalProblem,
   maxWithdrawable,
   pinProblem,
   quoteWithdrawal,
@@ -40,6 +41,47 @@ describe("quoteWithdrawal", () => {
   it("maxWithdrawable leaves room for the fee", () => {
     expect(maxWithdrawable(10_000, cfg)).toBe(9_900);
     expect(maxWithdrawable(20, cfg)).toBe(0);
+  });
+});
+
+describe("daily withdrawal limit", () => {
+  const none = { usedNgn: 0, count: 0 };
+
+  it("defaults to ₦5M and 5 withdrawals a day, and ignores junk env", () => {
+    expect(cfg.dailyWithdrawalLimitNgn).toBe(5_000_000);
+    expect(cfg.dailyWithdrawalCount).toBe(5);
+    expect(walletConfig({ WALLET_DAILY_WITHDRAWAL_COUNT: "0" }).dailyWithdrawalCount).toBe(5);
+    expect(walletConfig({ WALLET_DAILY_WITHDRAWAL_COUNT: "3.7" }).dailyWithdrawalCount).toBe(3);
+    expect(walletConfig({ WALLET_DAILY_WITHDRAWAL_LIMIT_NGN: "abc" }).dailyWithdrawalLimitNgn).toBe(5_000_000);
+  });
+
+  it("allows up to exactly the limit", () => {
+    expect(dailyWithdrawalProblem(2_000_000, none, cfg)).toBeNull();
+    expect(dailyWithdrawalProblem(1_000_000, { usedNgn: 4_000_000, count: 2 }, cfg)).toBeNull();
+  });
+
+  it("refuses an amount that would go over, and says how much is left", () => {
+    const msg = dailyWithdrawalProblem(1_000_000.01, { usedNgn: 4_000_000, count: 2 }, cfg);
+    expect(msg).toContain("₦1,000,000 more today");
+  });
+
+  it("says when the day's limit is used up", () => {
+    expect(dailyWithdrawalProblem(1_000, { usedNgn: 5_000_000, count: 3 }, cfg)).toContain("reached today's withdrawal limit");
+  });
+
+  it("refuses once the day's count is used, whatever the amount", () => {
+    expect(dailyWithdrawalProblem(1_000, { usedNgn: 5_000, count: 5 }, cfg)).toContain("5 withdrawals a day");
+    expect(dailyWithdrawalProblem(1_000, { usedNgn: 0, count: 1 }, { ...cfg, dailyWithdrawalCount: 1 })).toContain(
+      "1 withdrawal a day",
+    );
+  });
+
+  it("maxWithdrawable respects what is left of the day", () => {
+    expect(maxWithdrawable(10_000_000, cfg, none)).toBe(2_000_000); // per-withdrawal cap still applies
+    expect(maxWithdrawable(10_000_000, cfg, { usedNgn: 4_500_000, count: 3 })).toBe(500_000);
+    expect(maxWithdrawable(10_000_000, cfg, { usedNgn: 5_000_000, count: 3 })).toBe(0);
+    expect(maxWithdrawable(10_000_000, cfg, { usedNgn: 0, count: 5 })).toBe(0);
+    expect(maxWithdrawable(10_000, cfg, none)).toBe(9_900); // balance is still the first limit
   });
 });
 
