@@ -11,6 +11,7 @@ import { Popover } from "@/components/admin/popover";
 import {
   ActivityIcon,
   AlertIcon,
+  ChatIcon,
   ArrowRightIcon,
   BankIcon,
   CalendarIcon,
@@ -424,6 +425,7 @@ function PendingIcon({ kind }: { kind: string }) {
     approval: { icon: <CheckCircleIcon className="h-5 w-5" />, cls: "bg-accent-soft text-accent-deep" },
     deposit: { icon: <DownloadIcon className="h-5 w-5" />, cls: "bg-[#fdecec] text-danger" },
     fraud: { icon: <AlertIcon className="h-5 w-5" />, cls: "bg-[#fdecec] text-danger" },
+    support: { icon: <ChatIcon className="h-5 w-5" />, cls: "bg-[#e7efff] text-[#2563eb]" },
   };
   const s = map[kind] ?? map.approval;
   return <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${s.cls}`}>{s.icon}</span>;

@@ -3,6 +3,7 @@ import { logoutAction } from "@/app/actions";
 import { getSessionUser } from "@/lib/auth";
 import { can, staffRoleLabel } from "@/lib/permissions";
 import { pendingWork, pendingWorkIds } from "@/lib/services/admin-overview";
+import { prisma } from "@/lib/db";
 import { AdminSidebar, type AdminNavItem } from "@/components/admin/sidebar";
 import { MenuIcon, SearchIcon } from "@/components/admin/icons";
 import { NotificationsMenu } from "@/components/admin/notifications-menu";
@@ -20,10 +21,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!user) redirect("/admin/login");
   if (user.role !== "ADMIN") redirect("/dashboard");
 
-  const [pending, pendingIds] = await Promise.all([pendingWork(8), pendingWorkIds()]);
+  const [pending, pendingIds, ticketsNeedingReply] = await Promise.all([
+    pendingWork(8),
+    pendingWorkIds(),
+    prisma.supportTicket.count({ where: { status: "OPEN" } }),
+  ]);
   const items: AdminNavItem[] = [
     { href: "/admin", label: "Dashboard", icon: "home" },
     { href: "/admin/users", label: "Users", icon: "users" },
+    { href: "/admin/support", label: "Support", icon: "support", badge: ticketsNeedingReply },
     { href: "/admin/desk#approvals", label: "Approvals", icon: "approvals" },
     { href: "/admin/desk#kyc", label: "KYC", icon: "kyc" },
     { href: "/admin/desk#crypto", label: "Crypto Orders", icon: "crypto" },

@@ -57,6 +57,20 @@ The money may already be on its way, so the system holds the payout instead of g
 2. Desk approve/reject on `/admin` KYC queue.
 3. Trading blocked until `APPROVED`.
 
+## Support tickets
+
+Customers open tickets in the app, optionally naming one of their own orders or withdrawals.
+**Admin → Support** lists them, the ones needing a reply first and oldest at the top (the sidebar
+shows how many need a reply, and new ones appear in the bell).
+
+1. Open the ticket, read the conversation, and use **Look up this transaction** for the linked order.
+2. **Take this ticket** so others know you have it (replying takes it automatically).
+3. Reply. The ticket moves to "Waiting on customer"; tick **Mark resolved** if that settles it.
+4. A customer's reply puts it back under "Needs a reply", including a resolved one. **Closed** is final.
+
+Never ask for a gift card code, PIN or password in a ticket. Customer Support, Operations Managers and
+Super Admins can answer (`support.manage`); every other staff role can read.
+
 ## Limits and the audit trail
 
 Daily trading and withdrawal limits, and how to use **Admin → Audit Trail**, are in

@@ -37,7 +37,7 @@ export type TransactionRow = {
 
 export type PendingItem = {
   id: string;
-  kind: "crypto" | "gift" | "withdrawal" | "kyc" | "approval" | "deposit" | "fraud";
+  kind: "crypto" | "gift" | "withdrawal" | "kyc" | "approval" | "deposit" | "fraud" | "support";
   title: string;
   detail: string;
   at: Date;
@@ -239,7 +239,7 @@ export async function recentTransactions(limit = 6): Promise<TransactionRow[]> {
 /** Work waiting for staff, oldest first within each kind, with a link to the desk section. */
 export async function pendingWork(limit = 5): Promise<{ total: number; items: PendingItem[] }> {
   const user = { select: { email: true, fullName: true } } as const;
-  const [crypto, gift, withdrawals, kyc, approvals, exceptions, fraud, counts] = await Promise.all([
+  const [crypto, gift, withdrawals, kyc, approvals, exceptions, fraud, tickets, counts] = await Promise.all([
     prisma.cryptoOrder.findMany({ where: { status: "UNDER_REVIEW" }, orderBy: { createdAt: "asc" }, take: limit, include: { user } }),
     prisma.giftCardOrder.findMany({ where: { status: "UNDER_REVIEW", fraudFlag: false }, orderBy: { createdAt: "asc" }, take: limit, include: { user } }),
     prisma.withdrawal.findMany({ where: { status: "PENDING" }, orderBy: { createdAt: "asc" }, take: limit, include: { user } }),
@@ -247,6 +247,7 @@ export async function pendingWork(limit = 5): Promise<{ total: number; items: Pe
     prisma.approvalRequest.findMany({ where: { status: "PENDING", expiresAt: { gt: new Date() } }, orderBy: { requestedAt: "asc" }, take: limit }),
     prisma.blockchainDeposit.findMany({ where: { status: { in: [...DEPOSIT_EXCEPTIONS] } }, orderBy: { firstSeenAt: "asc" }, take: limit }),
     prisma.giftCardOrder.findMany({ where: { fraudFlag: true, status: { in: ["UNDER_REVIEW", "APPROVED"] } }, orderBy: { createdAt: "asc" }, take: limit, include: { user } }),
+    prisma.supportTicket.findMany({ where: { status: "OPEN" }, orderBy: { lastCustomerAt: "asc" }, take: limit, include: { user } }),
     Promise.all([
       prisma.cryptoOrder.count({ where: { status: "UNDER_REVIEW" } }),
       prisma.giftCardOrder.count({ where: { status: "UNDER_REVIEW" } }),
@@ -254,6 +255,7 @@ export async function pendingWork(limit = 5): Promise<{ total: number; items: Pe
       prisma.kycProfile.count({ where: { status: "PENDING" } }),
       prisma.approvalRequest.count({ where: { status: "PENDING", expiresAt: { gt: new Date() } } }),
       prisma.blockchainDeposit.count({ where: { status: { in: [...DEPOSIT_EXCEPTIONS] } } }),
+      prisma.supportTicket.count({ where: { status: "OPEN" } }),
     ]),
   ]);
   const items: PendingItem[] = [
@@ -264,6 +266,7 @@ export async function pendingWork(limit = 5): Promise<{ total: number; items: Pe
     ...gift.map((o) => ({ id: o.id, kind: "gift" as const, title: `Gift card ${o.reference}`, detail: `$${o.faceValueUsd} ${o.brand} · ${who(o.user)}`, at: o.createdAt, href: "/admin/desk#gift", action: "Review" as const })),
     ...withdrawals.map((w) => ({ id: w.id, kind: "withdrawal" as const, title: `Withdrawal ${w.reference}`, detail: who(w.user), at: w.createdAt, href: "/admin/desk#withdrawals", action: "Review" as const })),
     ...kyc.map((k) => ({ id: k.id, kind: "kyc" as const, title: "KYC review", detail: who(k.user), at: k.submittedAt ?? k.updatedAt, href: "/admin/desk#kyc", action: "Review" as const })),
+    ...tickets.map((t) => ({ id: t.id, kind: "support" as const, title: `Support: ${t.subject}`, detail: `${t.reference} · ${who(t.user)}`, at: t.lastCustomerAt, href: `/admin/support/${t.id}`, action: "Review" as const })),
   ];
   // Risks first, then the oldest work.
   const weight = (i: PendingItem) => (i.action === "Investigate" ? 0 : 1);
@@ -278,7 +281,7 @@ export async function pendingWork(limit = 5): Promise<{ total: number; items: Pe
  */
 export async function pendingWorkIds(cap = 500): Promise<string[]> {
   const id = { select: { id: true }, take: cap } as const;
-  const [fraud, deposits, approvals, crypto, gift, withdrawals, kyc] = await Promise.all([
+  const [fraud, deposits, approvals, crypto, gift, withdrawals, kyc, support] = await Promise.all([
     prisma.giftCardOrder.findMany({ where: { fraudFlag: true, status: { in: ["UNDER_REVIEW", "APPROVED"] } }, ...id }),
     prisma.blockchainDeposit.findMany({ where: { status: { in: [...DEPOSIT_EXCEPTIONS] } }, ...id }),
     prisma.approvalRequest.findMany({ where: { status: "PENDING", expiresAt: { gt: new Date() } }, ...id }),
@@ -286,6 +289,7 @@ export async function pendingWorkIds(cap = 500): Promise<string[]> {
     prisma.giftCardOrder.findMany({ where: { status: "UNDER_REVIEW", fraudFlag: false }, ...id }),
     prisma.withdrawal.findMany({ where: { status: "PENDING" }, ...id }),
     prisma.kycProfile.findMany({ where: { status: "PENDING" }, ...id }),
+    prisma.supportTicket.findMany({ where: { status: "OPEN" }, ...id }),
   ]);
   const tag = (kind: PendingItem["kind"], rows: { id: string }[]) => rows.map((r) => `${kind}-${r.id}`);
   return [
@@ -296,6 +300,7 @@ export async function pendingWorkIds(cap = 500): Promise<string[]> {
     ...tag("gift", gift),
     ...tag("withdrawal", withdrawals),
     ...tag("kyc", kyc),
+    ...tag("support", support),
   ];
 }
 

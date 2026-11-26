@@ -29,11 +29,12 @@ const EXPECTED: Record<StaffRole, Permission[]> = {
     "payouts.verify",
     "reports.view",
     "audit.view",
+    "support.manage",
   ],
   TRADING_OFFICER: ["desk.view", "rates.manage", "orders.review", "giftcards.reveal"],
   FINANCE_OFFICER: ["desk.view", "orders.payout", "withdrawals.process", "payouts.verify", "reports.view", "ledger.adjust"],
   COMPLIANCE_OFFICER: ["desk.view", "kyc.review", "audit.view"],
-  CUSTOMER_SUPPORT: ["desk.view"],
+  CUSTOMER_SUPPORT: ["desk.view", "support.manage"],
   AUDITOR: ["desk.view", "reports.view", "audit.view"],
 };
 

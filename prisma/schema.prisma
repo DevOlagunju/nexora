@@ -112,8 +112,11 @@ model User {
   ledgerAccounts      LedgerAccount[]
   quotes              Quote[]
   depositAddresses    DepositAddress[]
-  approvalsRequested  ApprovalRequest[] @relation("ApprovalRequester")
-  approvalsDecided    ApprovalRequest[] @relation("ApprovalDecider")
+  approvalsRequested  ApprovalRequest[]    @relation("ApprovalRequester")
+  approvalsDecided    ApprovalRequest[]    @relation("ApprovalDecider")
+  supportTickets      SupportTicket[]      @relation("SupportTickets")
+  supportAssigned     SupportTicket[]      @relation("SupportAssignee")
+  supportMessages     SupportMessage[]     @relation("SupportMessages")
 }
 
 /// Makes a retried API request safe: the first response for a key is stored and replayed,
@@ -751,4 +754,64 @@ model ApprovalRequest {
   decidedBy   User? @relation("ApprovalDecider", fields: [decidedById], references: [id], onDelete: Restrict)
 
   @@index([status, requestedAt])
+}
+
+// ---------------------------------------------------------------- support
+
+enum SupportCategory {
+  TRADE
+  GIFT_CARD
+  DEPOSIT
+  WITHDRAWAL
+  ACCOUNT
+  KYC
+  OTHER
+}
+
+enum SupportStatus {
+  /// Waiting for staff.
+  OPEN
+  /// Staff replied and asked the customer something.
+  AWAITING_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+/// A customer's support request or complaint, optionally tied to one of their own transactions.
+model SupportTicket {
+  id             String          @id @default(cuid())
+  reference      String          @unique
+  userId         String
+  category       SupportCategory
+  subject        String
+  status         SupportStatus   @default(OPEN)
+  /// Reference of the customer's order, withdrawal or deposit this is about (checked to be theirs).
+  orderReference String?
+  assignedToId   String?
+  /// Last time the customer wrote: the staff queue is oldest-waiting first.
+  lastCustomerAt DateTime        @default(now())
+  resolvedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  user       User             @relation("SupportTickets", fields: [userId], references: [id], onDelete: Cascade)
+  assignedTo User?            @relation("SupportAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  messages   SupportMessage[]
+
+  @@index([status, lastCustomerAt])
+  @@index([userId, createdAt])
+}
+
+model SupportMessage {
+  id        String   @id @default(cuid())
+  ticketId  String
+  authorId  String?
+  fromStaff Boolean  @default(false)
+  body      String
+  createdAt DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User?         @relation("SupportMessages", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
 }

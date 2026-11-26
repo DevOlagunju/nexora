@@ -8,7 +8,7 @@ export const AUDIT_GROUPS = {
   staff: { label: "Staff actions", prefixes: ["admin.", "approval.", "staff."], actions: [] },
   customer: {
     label: "Customer activity",
-    prefixes: ["user.", "wallet.", "kyc.", "crypto.", "gift.", "quote.", "payment."],
+    prefixes: ["user.", "wallet.", "kyc.", "crypto.", "gift.", "quote.", "payment.", "support."],
     actions: [],
   },
   security: {
@@ -77,6 +77,11 @@ const LABELS: Record<string, string> = {
   "admin.rate_update": "Changed a rate",
   "admin.permission_denied": "Was refused (no permission)",
   "admin.staff_role_set": "Changed staff access",
+  "support.ticket_create": "Opened a support ticket",
+  "support.customer_reply": "Replied on a support ticket",
+  "admin.support_reply": "Answered a support ticket",
+  "admin.support_status": "Changed a support ticket",
+  "admin.support_assign": "Took or released a support ticket",
   "staff.login_refused": "Staff sign-in refused",
   "approval.requested": "Asked for approval",
   "approval.approved": "Approved a request",

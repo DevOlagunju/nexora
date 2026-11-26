@@ -124,9 +124,22 @@ Orders can still be created without a quote; they are priced at the desk rate of
 | DELETE | `/alerts/:id` | |
 | POST | `/webhooks/:provider` | Provider callbacks (`paystack`). Signature verified. |
 
+**Support**
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/support/categories` | `[{ code, label }]` for the "what is this about" picker |
+| GET | `/support/tickets` | The customer's tickets, most recently updated first |
+| POST | `/support/tickets` | `{ category, subject, message, reference? }`. Idempotent. `reference` must be one of the customer's own orders, withdrawals or top-ups. At most 5 open tickets. |
+| GET | `/support/tickets/:id` | The ticket with its conversation. Staff appear as "Nexora support". |
+| POST | `/support/tickets/:id/messages` | `{ message }`. Idempotent. Puts the ticket back in the staff queue (reopens a resolved one); refused once closed. |
+
+Statuses: `OPEN` (waiting for support), `AWAITING_CUSTOMER`, `RESOLVED`, `CLOSED`. Staff replies arrive as notifications
+with `href: /support/:id`.
+
 ## Not in v1 yet
 
-`/support/tickets` and `/admin/*` come with later milestones. The admin desk currently works through the web app, with every action checked
+`/admin/*` comes with a later milestone. The admin desk currently works through the web app, with every action checked
 against the staff member's role (`src/lib/permissions.ts`).
 
 ## Adding a route

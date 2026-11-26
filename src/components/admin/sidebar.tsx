@@ -9,6 +9,7 @@ import {
   ActivityIcon,
   BankIcon,
   ChartIcon,
+  ChatIcon,
   CheckSquareIcon,
   CoinsIcon,
   DownloadIcon,
@@ -40,6 +41,7 @@ const ICONS = {
   reports: ChartIcon,
   audit: ActivityIcon,
   staff: ShieldIcon,
+  support: ChatIcon,
 };
 
 /**
@@ -67,7 +69,9 @@ function useCurrent() {
   }, [pathname]);
   const isCurrent = (href: string) => {
     const [path, section] = href.split("#");
-    if (path !== pathname) return false;
+    // A page's own sub-pages count as it too (e.g. a ticket under Support).
+    const inside = path !== "/admin" && pathname.startsWith(`${path}/`);
+    if (path !== pathname && !inside) return false;
     return section ? hash === `#${section}` : !hash || pathname !== "/admin/desk";
   };
   const select = (href: string) => {

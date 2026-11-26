@@ -104,6 +104,12 @@ export const BellIcon = (p: P) => (
     <path d="M10 20.5a2 2 0 0 0 4 0" />
   </Icon>
 );
+export const ChatIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4.5 6.5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H10l-4 3.5v-3.5H6.5a2 2 0 0 1-2-2Z" />
+    <path d="M8.5 9.5h7M8.5 12.5h4.5" />
+  </Icon>
+);
 export const CalendarIcon = (p: P) => (
   <Icon {...p}>
     <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
