@@ -34,6 +34,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     { href: "/admin/desk#giftcard-rates", label: "Gift Card Rates", icon: "giftRates" },
     { href: "/admin/desk#wallets", label: "Assets & Networks", icon: "networks" },
     ...(can(user, "reports.view") ? [{ href: "/admin/desk#earnings", label: "Reports", icon: "reports" as const }] : []),
+    ...(can(user, "staff.manage") || can(user, "audit.view") ? [{ href: "/admin/staff", label: "Staff", icon: "staff" as const }] : []),
     ...(can(user, "audit.view") ? [{ href: "/admin/audit", label: "Audit Trail", icon: "audit" as const }] : []),
   ];
   const initials = user.fullName
