@@ -36,7 +36,7 @@ npm run db:seed
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3100](http://localhost:3100). (Dev uses 3100 so it doesn't clash with other apps on 3000.)
 
 ## Project layout
 
@@ -64,7 +64,7 @@ scripts/               backup-db, smoke (post-deploy), set-admin-password
 
 | Command | What it does |
 |---------|--------------|
-| `npm run dev` | Dev server on `0.0.0.0:3000` (reachable from phones on LAN) |
+| `npm run dev` | Dev server on `0.0.0.0:3100` (reachable from phones on LAN) |
 | `npm run check` | Lint + typecheck + unit tests (what CI runs before build) |
 | `npm test` | Unit tests (Vitest) |
 | `npm run build` / `start` | Production build / server |
