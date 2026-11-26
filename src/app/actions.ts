@@ -53,6 +53,7 @@ import { createRateAlert, deleteRateAlert } from "@/lib/services/rate-alerts";
 import { startBuyOrderCheckout, startWalletFunding } from "@/lib/services/payments";
 import { publicOrigin } from "@/lib/origin";
 import { cancelApproval, decideApproval, requestApproval } from "@/lib/services/approvals";
+import { assignTicket, setTicketStatus, staffReply } from "@/lib/services/support";
 import { addGiftCardRate, updateGiftCardRate } from "@/lib/services/giftcards";
 import { recordGiftRedemption } from "@/lib/services/reports";
 import { resolveDeposit, simulateDeposit } from "@/lib/services/deposits";
@@ -427,6 +428,33 @@ export async function requestStaffRoleChangeAction(formData: FormData): Promise<
   if (isActionResult(admin)) return admin;
   const result = await requestApproval(admin, "staff.role_change", fields(formData, "email", "role", "note"));
   return toAction(result, revalidateTradeViews);
+}
+
+/* -------------------------------- support -------------------------------- */
+
+function revalidateSupport() {
+  revalidatePath("/admin", "layout");
+}
+
+/** Reply to a customer's ticket (optionally resolving it in the same step). */
+export async function supportReplyAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("support.manage");
+  if (isActionResult(admin)) return admin;
+  return toAction(await staffReply(admin, String(formData.get("id") ?? ""), fields(formData, "message", "resolve")), revalidateSupport);
+}
+
+/** Move a ticket: needs a reply, waiting on customer, resolved or closed. */
+export async function supportStatusAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("support.manage");
+  if (isActionResult(admin)) return admin;
+  return toAction(await setTicketStatus(admin, String(formData.get("id") ?? ""), fields(formData, "status")), revalidateSupport);
+}
+
+/** Take a ticket, or hand it back. */
+export async function supportAssignAction(formData: FormData): Promise<ActionResult> {
+  const admin = await staffOrError("support.manage");
+  if (isActionResult(admin)) return admin;
+  return toAction(await assignTicket(admin, String(formData.get("id") ?? ""), formData.get("take") === "1"), revalidateSupport);
 }
 
 /** Approve (and apply) or reject someone else's request. The permission is checked per request. */
