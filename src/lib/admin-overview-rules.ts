@@ -99,3 +99,22 @@ export function ago(t: Date, now = new Date()): string {
   if (h < 48) return `${h}h ago`;
   return `${Math.round(h / 24)}d ago`;
 }
+
+/**
+ * The bell remembers which waiting items this staff member has already seen (stored in the
+ * browser as a JSON list of ids). Anything unreadable counts as "seen nothing".
+ */
+export function parseSeen(raw: string | null): Set<string> {
+  if (!raw) return new Set();
+  try {
+    const list: unknown = JSON.parse(raw);
+    return new Set(Array.isArray(list) ? list.filter((v): v is string => typeof v === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Waiting items not seen yet: what the bell's badge counts. */
+export function unseenIds(ids: readonly string[], seen: ReadonlySet<string>): string[] {
+  return ids.filter((id) => !seen.has(id));
+}

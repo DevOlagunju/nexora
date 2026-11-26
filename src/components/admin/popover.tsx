@@ -14,6 +14,7 @@ export function Popover({
   align = "right",
   buttonClassName = "",
   panelClassName = "",
+  onOpen,
 }: {
   label: string;
   button: React.ReactNode;
@@ -21,6 +22,8 @@ export function Popover({
   align?: "left" | "right";
   buttonClassName?: string;
   panelClassName?: string;
+  /** Called each time the panel is opened by the button. */
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -56,7 +59,10 @@ export function Popover({
         aria-label={label}
         aria-expanded={open}
         aria-haspopup="true"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (!open) onOpen?.();
+          setOpen(!open);
+        }}
         className={buttonClassName}
       >
         {button}

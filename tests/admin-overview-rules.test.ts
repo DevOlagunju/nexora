@@ -1,5 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { bucketIndex, buckets, compactNgn, formatPct, lagosMidnight, parseRange, pctChange, successRate } from "@/lib/admin-overview-rules";
+import {
+  bucketIndex,
+  buckets,
+  compactNgn,
+  formatPct,
+  lagosMidnight,
+  parseRange,
+  parseSeen,
+  pctChange,
+  successRate,
+  unseenIds,
+} from "@/lib/admin-overview-rules";
+
+describe("bell: seen and unseen work", () => {
+  it("counts only what has not been seen", () => {
+    const ids = ["crypto-1", "kyc-2", "withdrawal-3"];
+    expect(unseenIds(ids, new Set())).toEqual(ids);
+    expect(unseenIds(ids, new Set(["crypto-1", "kyc-2", "withdrawal-3"]))).toEqual([]);
+    // A new order arrives after the bell was opened: only that one is new.
+    expect(unseenIds([...ids, "crypto-9"], new Set(ids))).toEqual(["crypto-9"]);
+    // Handled work drops out of the list and never comes back as "new".
+    expect(unseenIds(["kyc-2"], new Set(ids))).toEqual([]);
+  });
+
+  it("reads the stored list, and treats anything broken as nothing seen", () => {
+    expect([...parseSeen('["a","b"]')]).toEqual(["a", "b"]);
+    expect([...parseSeen('["a",3,null]')]).toEqual(["a"]);
+    expect(parseSeen(null).size).toBe(0);
+    expect(parseSeen("not json").size).toBe(0);
+    expect(parseSeen('{"a":1}').size).toBe(0);
+  });
+});
 
 const NOW = new Date("2026-11-25T15:30:00Z"); // 16:30 in Lagos
 
